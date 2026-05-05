@@ -1,0 +1,120 @@
+/* CSS per la gestione delle immagini delle stampanti */
+.printer-image-container {
+    width: 100%;
+    height: 200px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    border: 1px solid #ddd;
+    transition: all 0.2s ease;
+    position: relative;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+.image-error-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #f0f0f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #666;
+    font-size: 12px;
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+}
+
+/* Varianti specifiche per i modelli di stampanti */
+.printer-image-container.a1 {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/A1/A1.jpg");
+}
+
+.printer-image-container.a1-combo {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/A1/A1C.jpg");
+}
+
+.printer-image-container.a1mini {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/A1mini/A1mini.jpg");
+}
+
+.printer-image-container.a1mini-combo {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/A1mini/A1miniC.jpg");
+}
+
+.printer-image-container.h2c {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/H2C/H2CC.jpg");
+}
+
+.printer-image-container.h2c-combo-laser-10w {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/H2C/H2CL10w.jpg");
+}
+
+.printer-image-container.h2c-combo-laser-40w {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/H2C/H2CL40w.jpg");
+}
+
+.printer-image-container.h2d {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/H2D/H2D.jpg");
+}
+
+.printer-image-container.h2d-combo {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/H2D/H2DC.jpg");
+}
+
+.printer-image-container.h2d-dual-ams-2pro {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/H2D/H2DCAMS2.jpg");
+}
+
+.printer-image-container.h2d-ams-ams-ht-bundle {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/H2D/H2DCAMSHT.jpg");
+}
+
+.printer-image-container.h2d-combo-laser-10w {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/H2D/H2DL10w.jpg");
+}
+
+.printer-image-container.h2d-combo-laser-40w {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/H2D/H2DL40w.jpg");
+}
+
+.printer-image-container.h2s {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/H2S/H2S.jpg");
+}
+
+.printer-image-container.h2s-combo {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/H2S/H2SC.jpg");
+}
+
+.printer-image-container.h2s-combo-laser-10w {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/H2S/H2SL10w.jpg");
+}
+
+.printer-image-container.p1s {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/P1S/P1S.jpg");
+}
+
+.printer-image-container.p1s-combo {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/P1S/P1SC.jpg");
+}
+
+.printer-image-container.p1s-combo-with-hub {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/P1S/P1SCHUB.jpg");
+}
+
+.printer-image-container.p1s-combo-with-buffer {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/P1S/P1SCBUF.jpg");
+}
+
+.printer-image-container.p2s {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/P2S/P2S.jpg");
+}
+
+.printer-image-container.p2s-combo {
+    background-image: url("chrome-extension://__MSG_@@extension_id__/img/P2S/P2SC.jpg");
+}

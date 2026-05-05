@@ -1,0 +1,58 @@
+{
+   "action": {},
+   "background": {
+      "service_worker": "background.js"
+   },
+   "content_scripts": [
+      {
+         "all_frames": false,
+         "js": [
+            "mw_inject.js"
+         ],
+         "matches": [
+            "https://makerworld.com/*"
+         ],
+         "run_at": "document_end"
+      },
+      {
+         "matches": [
+            "https://makerworld.com/*"
+         ],
+         "js": [
+            "mw_injected.js"
+         ],
+         "css": [
+            "mw_injected.css"
+         ]
+      }
+   ],
+   "description": "Makerworld Utils",
+   "externally_connectable": {
+      "matches": [
+         "https://makerworld.com/*"
+      ]
+   },
+   "icons": {
+      "256": "logo.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7JulrZAQqzYwEsV9mF3eKJUH58/nh/HipBp0HJ3Z9auukOLBg+OE1/L5MS/ZB0KB0dDSqekQJa1MHTE36TjNANWstsf5zxC5dhFYNtxDRA8gUtnAsmACQLoA2kE5qh7c9cSZoSsdkrHekVKLRIqqmWEg4xR3ZIbzPMwK8EKgT9rGSkhSaqw1E7BM95p3eSoBeQwLUcWDlJh+iVX12c5sC4k1H+aiTP3CIqqRY0qqioYxRjXmto1TxHFtKh4hx56yHrAiFGd4ftMdhlqs+z0ehoScVw/pgy7tSvnayt1nlvdmuqKshvs9Pb1NpcWCots2GbM2r+Vf+6RdnDz37Wq4mQIDAQAB",
+   "manifest_version": 3,
+   "name": "Makerworld Utils",
+   "permissions": [],
+   "short_name": "Makerworld Utils",
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "1.3.0",
+   "web_accessible_resources": [
+      {
+         "matches": [
+            "\u003Call_urls>"
+         ],
+         "resources": [
+            "mw_injected.js",
+            "index.html",
+            "swal.js",
+            "img/*"
+         ]
+      }
+   ]
+}
