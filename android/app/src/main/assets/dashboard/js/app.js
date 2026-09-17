@@ -299,6 +299,21 @@ function shortDate(k) {
 
 function renderChart() {
   if (!window.Chart) return;
+  var canvas = byId('chart');
+  if (!canvas) return;
+
+  // Distrugge qualunque chart sia già agganciato a questo canvas:
+  // previene l'errore "Canvas is already in use" in caso di doppia
+  // iniezione o di refresh ravvicinati.
+  try {
+    var existing = window.Chart.getChart ? window.Chart.getChart(canvas) : null;
+    if (existing) existing.destroy();
+  } catch (e) { /* ignora */ }
+  if (state.chart) {
+    try { state.chart.destroy(); } catch (e) { /* ignora */ }
+    state.chart = null;
+  }
+
   var n = state.range > 0 ? Math.min(state.range, state.labels.length) : state.labels.length;
   var labels = state.labels.slice(-n).map(shortDate);
   var datasets = [
@@ -615,12 +630,17 @@ function bindEvents() {
 
 // L'esecuzione avviene anche da overlay iniettato a pagina già caricata:
 // avvia subito se il DOM è pronto, altrimenti aspetta DOMContentLoaded.
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', function () {
+// Guardia anti-doppio-avvio: se la dashboard è già attiva, non rilanciare
+// bindEvents/refresh (evita doppi listener e il conflitto sul canvas del chart).
+if (!window.__mwDashBooted) {
+  window.__mwDashBooted = true;
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      bindEvents();
+      refresh();
+    });
+  } else {
     bindEvents();
     refresh();
-  });
-} else {
-  bindEvents();
-  refresh();
+  }
 }
