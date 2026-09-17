@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>MW Utils</title>
+  <style>
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: #0B0F14; color: #9FB0BF;
+      font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .wrap { text-align: center; }
+    .logo {
+      width: 64px; height: 64px; margin: 0 auto 18px;
+      border-radius: 18px; background: linear-gradient(135deg, #00A48F, #0BC9B3);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 20px; color: #fff; letter-spacing: 1px;
+      box-shadow: 0 8px 24px rgba(0, 164, 143, 0.35);
+    }
+    .spinner {
+      width: 26px; height: 26px; margin: 0 auto 14px;
+      border: 3px solid rgba(0, 164, 143, 0.25);
+      border-top-color: #0BC9B3; border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo">MW</div>
+    <div class="spinner"></div>
+    <div>Caricamento…</div>
+  </div>
+</body>
+</html>
