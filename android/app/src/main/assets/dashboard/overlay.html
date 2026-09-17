@@ -44,24 +44,23 @@
       <!-- Card principali -->
       <div class="cards" id="cards">
         <div class="card accent">
-          <div class="card-label">Punti disponibili</div>
-          <div class="card-value" id="card-balance">—</div>
-          <div class="card-foot" id="card-balance-foot"></div>
+          <div class="card-label">Punti ultimo giorno</div>
+          <div class="card-value" id="card-lastday">—</div>
+          <div class="card-foot" id="card-lastday-foot"></div>
         </div>
         <div class="card">
-          <div class="card-label">Exclusive guadagnati</div>
-          <div class="card-value" id="card-exclusive">—</div>
-          <div class="card-foot" id="card-exclusive-foot"></div>
+          <div class="card-label">Obiettivo (goal)</div>
+          <div id="goal-widget"></div>
         </div>
         <div class="card">
-          <div class="card-label">Valore stimato (USD)</div>
-          <div class="card-value" id="card-usd">—</div>
-          <div class="card-foot">0,066 $ per punto exclusive</div>
+          <div class="card-label">USD mese corrente</div>
+          <div class="card-value" id="card-month">—</div>
+          <div class="card-foot" id="card-month-foot"></div>
         </div>
         <div class="card">
-          <div class="card-label">Regular guadagnati</div>
-          <div class="card-value" id="card-regular">—</div>
-          <div class="card-foot" id="card-redeemed-foot"></div>
+          <div class="card-label">Totale da sempre</div>
+          <div class="card-value" id="card-total">—</div>
+          <div class="card-foot" id="card-total-foot"></div>
         </div>
       </div>
 
@@ -72,6 +71,7 @@
           <div class="giftcard-main">
             <div id="giftcard-title">Gift Card</div>
             <div id="giftcard-sub" class="card-foot"></div>
+            <div id="giftcard-saldo" class="card-foot"></div>
           </div>
           <select id="market-select" class="market-select"></select>
         </div>
@@ -83,18 +83,18 @@
         <div class="row-between">
           <div class="card-label big">Punti per giorno</div>
           <div class="range-group" id="range-group">
-            <button class="range-btn" data-range="30">30g</button>
-            <button class="range-btn active" data-range="90">90g</button>
-            <button class="range-btn" data-range="0">Tutto</button>
+            <button class="range-btn" data-range="7">1 sett</button>
+            <button class="range-btn active" data-range="30">1 mese</button>
+            <button class="range-btn" data-range="365">1 anno</button>
           </div>
         </div>
         <div class="chart-wrap"><canvas id="chart"></canvas></div>
       </div>
 
-      <!-- Previsioni -->
+      <!-- Milestones -->
       <div class="card">
-        <div class="card-label big">Previsioni</div>
-        <div id="predictions" class="pred-list"></div>
+        <div class="card-label big">Quando raggiungerò…</div>
+        <div id="milestones" class="pred-list"></div>
       </div>
 
       <!-- Riepilogo mensile -->

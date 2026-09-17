@@ -25,12 +25,30 @@ efettua il login con la propria utenza MakerWorld la prima volta, poi mostra **s
 
 ## Cosa mostra la dashboard
 
-- Card: **saldo punti**, exclusive guadagnati, valore stimato USD (0,066 $/punto), regular guadagnati
-- **Grafico** punti giornalieri (regular / exclusive / spesi) con range 30g / 90g / tutto
-- **Gift card**: quante acquistabili, progresso verso la prossima, market selezionabile
-- **Previsioni**: media giornaliera exclusive e data stimata della prossima gift card
-- **Riepilogo mensile** (exclusive guadagnati/riscattati in USD)
-- **Top modelli**, breakdown dell'ultimo giorno e modelli "freddi" (5 giorni senza punti)
+Le 4 card principali (griglia 2×2), pensate per non duplicare informazioni:
+
+1. **Punti ultimo giorno** — punti guadagnati nell'ultimo giorno con dati, **non arrotondati**
+   (es. `169.63`), con importo USD equivalente (exclusive) e dettaglio regular/exclusive.
+2. **Obiettivo (goal)** — replica del widget dell'estensione: anello di progresso SVG, obiettivo
+   in USD modificabile (default 1000 $, salvato in `localStorage` come `mw_points_goal_usd`),
+   percentuale di avanzamento e ETA calcolata sulla media giornaliera exclusive.
+3. **USD mese corrente** — valore in USD degli exclusive guadagnati nel mese corrente, con punti
+   e giorni di attività del mese.
+4. **Totale da sempre** — valore in USD di tutti gli exclusive guadagnati, con **media mensile** e
+   **media giornaliera** in USD.
+
+Più, sotto:
+
+- **Gift card**: quante ne sono acquistabili con il saldo reale, valore totale, punti mancanti alla
+  prossima card e barra di progresso. Market selezionabile (il market rilevato dall'API ha priorità);
+  se il market scelto non ha prodotti l'app riprova senza parametro `shop` e mostra l'errore a video
+  invece di restare vuota.
+- **Grafico** punti giornalieri (regular / exclusive / spesi) con selettore **ultima settimana /
+  ultimo mese / ultimo anno**.
+- **Quando raggiungerò…**: milestone **+100 / +500 / +1000 / +5000** exclusive con data stimata,
+  giorni necessari e valore USD (stessa formula dell'estensione).
+- **Riepilogo mensile** (exclusive guadagnati/riscattati in USD).
+- **Top modelli**, breakdown dell'ultimo giorno e modelli "freddi" (5 giorni senza punti).
 
 ## Build locale
 

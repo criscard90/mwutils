@@ -246,7 +246,7 @@ class MainActivity : Activity() {
         val script = buildString {
             append("(function(){")
             append("var d=document;")
-            append("var old=d.getElementById('mw-root'); if(old){old.remove();}")
+            append("var old=d.getElementById('mw-root'); if(old){return;}")
             // CSS: preferiamo constructable stylesheets (immuni da CSP),
             // con fallback su <style> inline.
             append("try{")

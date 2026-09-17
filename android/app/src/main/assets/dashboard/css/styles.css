@@ -172,3 +172,33 @@
 #mw-root .muted { color: var(--mw-text-dim); font-size: 13px; }
 
 #mw-root .footer { text-align: center; font-size: 11px; color: var(--mw-text-dim); padding: 18px 0 6px; }
+
+/* ---------------- card: unità e seconda riga del foot ---------------- */
+#mw-root .card-value .unit { font-size: 13px; font-weight: 600; color: var(--mw-text-dim); margin-left: 4px; }
+#mw-root .card-foot-2 { margin-top: 3px; opacity: 0.75; }
+#mw-root #card-month { font-size: 24px; }
+#mw-root #card-total { font-size: 24px; }
+
+/* ---------------- widget goal ---------------- */
+#mw-root .goal-wrap { display: flex; align-items: center; gap: 12px; }
+#mw-root .goal-svg { flex: 0 0 auto; }
+#mw-root .goal-info { min-width: 0; flex: 1; }
+#mw-root .goal-amounts { font-size: 17px; font-weight: 800; letter-spacing: -0.3px; }
+#mw-root .goal-sub { font-size: 11px; color: var(--mw-text-dim); margin-top: 2px; }
+#mw-root .goal-form { display: flex; gap: 6px; margin-top: 10px; }
+#mw-root .goal-input {
+  flex: 1; min-width: 0;
+  background: var(--mw-bg-soft); color: var(--mw-text);
+  border: 1px solid var(--mw-card-border); border-radius: 10px;
+  padding: 7px 10px; font-size: 13px; font-weight: 600;
+}
+#mw-root .goal-btn {
+  padding: 7px 12px; border-radius: 10px; font-size: 12px; font-weight: 600;
+  background: rgba(11, 201, 179, 0.16); color: var(--mw-accent);
+  border: 1px solid rgba(11, 201, 179, 0.35); cursor: pointer;
+}
+#mw-root .goal-btn.ghost {
+  background: var(--mw-bg-soft); color: var(--mw-text-dim);
+  border-color: var(--mw-card-border);
+}
+#mw-root .goal-btn:active { opacity: 0.75; }
