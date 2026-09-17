@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -20,7 +22,8 @@ android {
         // In locale lo puoi creare tu con la stessa struttura (storeFile, storePassword, keyAlias, keyPassword).
         val ksPropsFile = rootProject.file("keystore.properties")
         if (ksPropsFile.exists()) {
-            val props = java.util.Properties().apply { ksPropsFile.inputStream().use { load(it) } }
+            val props = Properties()
+            ksPropsFile.inputStream().use { props.load(it) }
             create("release") {
                 storeFile = rootProject.file(props.getProperty("storeFile"))
                 storePassword = props.getProperty("storePassword")

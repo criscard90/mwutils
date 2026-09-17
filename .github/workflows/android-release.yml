@@ -1,10 +1,13 @@
-name: Android APK Release
+name: Android Build & Release
 
 on:
-  workflow_dispatch:
+  # Build automatica a OGNI push/merge su main:
+  # l'APK è sempre disponibile come artifact della run;
+  # se il commit è un tag v* viene inoltre creata la GitHub Release.
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -26,6 +29,17 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"
+
+      - name: Extract version name
+        id: version
+        run: |
+          VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' android/app/build.gradle.kts | head -1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "suffix=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "suffix=v$VERSION-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Prepare signing keystore
         working-directory: android
@@ -49,23 +63,32 @@ jobs:
             KEY_ALIAS=mwutils
             KEY_PASSWORD=mwutils2024
           fi
-          cat > keystore.properties <<EOF
-          storeFile=release.keystore
-          storePassword=$KEYSTORE_PASSWORD
-          keyAlias=$KEY_ALIAS
-          keyPassword=$KEY_PASSWORD
-          EOF
+          {
+            echo "storeFile=release.keystore"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore.properties
 
       - name: Build release APK
         working-directory: android
         run: gradle assembleRelease --no-daemon
 
-      - name: Rename APK
+      - name: Prepare APK file
         run: |
           mkdir -p dist
-          cp android/app/build/outputs/apk/release/app-release.apk "dist/mwutils-${{ github.ref_name }}.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/mwutils-${{ steps.version.outputs.suffix }}.apk"
+          ls -la dist
 
-      - name: Publish to GitHub Release
+      - name: Upload build artifact (ogni push)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mwutils-apk-${{ steps.version.outputs.suffix }}
+          path: dist/mwutils-*.apk
+          if-no-files-found: error
+
+      - name: Publish to GitHub Release (solo tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/mwutils-*.apk
