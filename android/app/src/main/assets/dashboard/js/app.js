@@ -555,8 +555,8 @@ function renderGoal() {
   if (input && document.activeElement === input && byId('goal-ring')) {
     byId('goal-ring').setAttribute('stroke-dashoffset', String(offset));
     byId('goal-ring').setAttribute('stroke', color);
-    if (byId('goal-amounts')) byId('goal-amounts').textContent = fmtUsd(v.currentUsd);
-    if (byId('goal-progress')) byId('goal-progress').innerHTML = 'Avanzamento: <strong>' + v.percentLabel + '%</strong> di ' + fmtUsd(v.goalUsd);
+    if (byId('goal-amounts')) byId('goal-amounts').textContent = fmtUsd(v.currentUsd) + ' / ' + fmtUsd(v.goalUsd);
+    if (byId('goal-progress')) byId('goal-progress').innerHTML = 'Avanzamento: <strong>' + v.percentLabel + '%</strong>';
     if (byId('goal-eta')) byId('goal-eta').textContent = 'ETA: ' + etaLabel(v);
     return;
   }
@@ -570,14 +570,16 @@ function renderGoal() {
         ' transform="rotate(-90 28 28)"/>' +
       '</svg>' +
       '<div class="goal-info">' +
-        '<div class="goal-amounts" id="goal-amounts">' + fmtUsd(v.currentUsd) + '</div>' +
-        '<div class="goal-sub" id="goal-progress">Avanzamento: <strong>' + v.percentLabel + '%</strong> di ' + fmtUsd(v.goalUsd) + '</div>' +
+        '<div class="goal-amounts" id="goal-amounts">' + fmtUsd(v.currentUsd) + ' / ' + fmtUsd(v.goalUsd) + '</div>' +
+        '<div class="goal-sub" id="goal-progress">Avanzamento: <strong>' + v.percentLabel + '%</strong></div>' +
         '<div class="goal-sub" id="goal-eta">ETA: ' + etaLabel(v) + '</div>' +
         '<div class="goal-sub">' + fmtPts(v.currentUsd / POINT_TO_USD) + ' pts exclusive (netti riscatti)</div>' +
       '</div>' +
     '</div>' +
     '<div class="goal-form">' +
       '<input id="goal-input" class="goal-input" type="number" min="1" step="1" value="' + v.goalUsd + '">' +
+    '</div>' +
+    '<div class="goal-form goal-actions">' +
       '<button id="goal-save" class="goal-btn">Salva</button>' +
       '<button id="goal-reset" class="goal-btn ghost">Reset</button>' +
     '</div>';
