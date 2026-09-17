@@ -58,6 +58,7 @@ class MainActivity : Activity() {
 
     private lateinit var webView: WebView
     private val handler = Handler(Looper.getMainLooper())
+    private val prefs by lazy { getSharedPreferences("mwutils", MODE_PRIVATE) }
 
     @Volatile
     private var mode = Mode.LOADING
@@ -88,6 +89,10 @@ class MainActivity : Activity() {
 
         setContentView(webView)
 
+        // Ripristina la sessione salvata (i cookie di sessione non sopravvivono
+        // alla chiusura del processo: li riemettiamo nel CookieManager).
+        restoreCookies()
+
         // Partiamo direttamente dalla pagina punti: se l'utente non è loggato
         // MakerWorld mostra la schermata di accesso, la probe rileva il login.
         mode = Mode.LOADING
@@ -102,30 +107,96 @@ class MainActivity : Activity() {
     private inner class AppWebViewClient : WebViewClient() {
 
         override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+            val scheme = try { Uri.parse(url).scheme ?: "" } catch (e: Exception) { "" }
+            val isHttp = scheme == "http" || scheme == "https"
             return when (mode) {
-                // In dashboard: i link interni a makerworld restano nell'app,
-                // i link esterni si aprono nel browser di sistema.
+                // In dashboard: http(s) su makerworld resta nell'app, tutto il
+                // resto (altri domini e schemi custom/intent) va fuori dall'app.
                 Mode.DASHBOARD -> {
-                    if (url.startsWith(MW)) false
-                    else {
-                        try {
-                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                        } catch (e: Exception) { /* ignora */ }
-                        true
-                    }
+                    if (isHttp && url.startsWith(MW)) false
+                    else { openExternal(url); true }
                 }
-                // In login: navigazione libera (provider OAuth, ecc.)
-                else -> false
+                // In login: http(s) nel WebView; gli schemi non-http (intent://,
+                // schemi custom dei provider OAuth) NON vanno nel WebView perché
+                // causano pagina bianca e rompono il flusso: li deleghiamo al sistema.
+                else -> {
+                    if (isHttp) false
+                    else { openExternal(url); true }
+                }
             }
         }
 
         override fun onPageFinished(view: WebView, url: String?) {
             when (mode) {
-                Mode.LOADING, Mode.LOGIN -> runProbe()
+                Mode.LOADING, Mode.LOGIN -> {
+                    runProbe()
+                    injectLoginHelper()
+                }
                 // Full-page navigation ricarica la pagina: reiniettiamo l'overlay.
-                Mode.DASHBOARD -> injectDashboard()
+                Mode.DASHBOARD -> {
+                    saveCookies()
+                    injectDashboard()
+                }
             }
         }
+    }
+
+    /** Apre l'URL fuori dall'app (browser o app target dello schema). */
+    private fun openExternal(url: String) {
+        try {
+            val intent: Intent = if (url.startsWith("intent://")) {
+                Intent.parseUri(url, Intent.URI_INTENT_SCHEME)
+            } else {
+                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            }
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (e: Exception) { /* nessuna app compatibile: ignora */ }
+    }
+
+    /**
+     * Persiste i cookie di sessione in SharedPreferences: i session-cookie del
+     * WebView vengono scartati alla chiusura del processo, quindi li salviamo
+     * e li ripristiniamo all'avvio.
+     */
+    private fun saveCookies() {
+        try {
+            val ck = CookieManager.getInstance().getCookie("https://makerworld.com")
+            if (!ck.isNullOrBlank()) {
+                prefs.edit().putString("mw_cookies", ck).apply()
+            }
+        } catch (e: Exception) { /* ignora */ }
+    }
+
+    private fun restoreCookies() {
+        try {
+            val saved = prefs.getString("mw_cookies", null) ?: return
+            val cm = CookieManager.getInstance()
+            saved.split(";").forEach { raw ->
+                val pair = raw.trim()
+                if (pair.isNotEmpty() && pair.contains("=")) {
+                    cm.setCookie("https://makerworld.com", "$pair; Path=/")
+                }
+            }
+            cm.flush()
+        } catch (e: Exception) { /* ignora */ }
+    }
+
+    /**
+     * Piccolo pulsante "di fuga" mostrato durante il login: se la probe non
+     * riesce (es. challenge Cloudflare o OAuth su domini terzi), l'utente può
+     * comunque forzare l'apertura della dashboard.
+     */
+    private fun injectLoginHelper() {
+        webView.evaluateJavascript("""(function(){
+  if (document.getElementById('mw-login-helper')) { return; }
+  var b = document.createElement('button');
+  b.id = 'mw-login-helper';
+  b.textContent = 'Apri la dashboard MW Utils';
+  b.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:2147483647;padding:12px 22px;border-radius:24px;border:none;background:#00A48F;color:#fff;font-weight:700;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,0.45);';
+  b.addEventListener('click', function(){ MwBridge.forceDashboard(); });
+  document.body.appendChild(b);
+})();""", null)
     }
 
     // ---------------------------------------------------------------------
@@ -194,7 +265,10 @@ class MainActivity : Activity() {
             append("try{d.body.style.overflow='hidden';}catch(e){}")
             // JS della dashboard: eseguito direttamente da evaluateJavascript
             // (non soggetto a CSP, a differenza di uno <script> inline).
+            // In caso di errore avvisiamo l'utente invece di lasciare schermo bianco.
+            append("try{")
             append(js)
+            append("}catch(e){ try{ window.MwBridge.toast('Errore dashboard: ' + (e && e.message ? e.message : e)); }catch(e2){} }")
             append("})();")
         }
         webView.evaluateJavascript(script, null)
@@ -210,13 +284,29 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun authResult(status: Int, authenticated: Int) {
             if (authenticated != 1 || mode == Mode.DASHBOARD) return
-            CookieManager.getInstance().flush() // persiste la sessione per i prossimi avvii
             runOnUiThread {
                 if (mode == Mode.DASHBOARD) return@runOnUiThread
                 stopProbing()
                 mode = Mode.DASHBOARD
+                saveCookies()
                 Toast.makeText(this@MainActivity, "Login effettuato!", Toast.LENGTH_SHORT).show()
                 if (webView.url != null && webView.url!!.startsWith("$MW/en/points")) {
+                    injectDashboard()
+                } else {
+                    webView.loadUrl(POINTS_URL) // onPageFinished inietterà la dashboard
+                }
+            }
+        }
+
+        /** Forza l'apertura della dashboard (pulsante "di fuga" nella pagina di login). */
+        @JavascriptInterface
+        fun forceDashboard() {
+            runOnUiThread {
+                stopProbing()
+                mode = Mode.DASHBOARD
+                saveCookies()
+                val u = webView.url
+                if (u != null && u.startsWith("$MW/en/points")) {
                     injectDashboard()
                 } else {
                     webView.loadUrl(POINTS_URL) // onPageFinished inietterà la dashboard
@@ -239,6 +329,7 @@ class MainActivity : Activity() {
         fun logout() {
             CookieManager.getInstance().removeAllCookies(null)
             CookieManager.getInstance().flush()
+            prefs.edit().remove("mw_cookies").apply()
             runOnUiThread {
                 mode = Mode.LOADING
                 startProbing()
