@@ -1,7 +1,7 @@
 # MW Utils — App Android (Dashboard punti MakerWorld)
 
-App Android full-immersive che replicare la dashboard "points" dell'estensione Chrome:
-efettua il login con la propria utenza MakerWorld la prima volta, poi mostra **solo la dashboard**.
+App Android full-immersive che replica la dashboard "points" dell'estensione Chrome:
+effettua il login con la propria utenza MakerWorld la prima volta, poi mostra **solo la dashboard**.
 
 ## Architettura
 
@@ -75,17 +75,19 @@ usa `gradle assembleDebug`.
 
 Il workflow `.github/workflows/android-release.yml`:
 
-- si attiva su **push di tag `v*`** o manualmente (workflow_dispatch);
+- si attiva **automaticamente a ogni push/merge su `main`** (oltre che su tag `v*` e manualmente);
+- a ogni push carica l'APK come **artifact** della run e lo pubblica nella release rolling
+  **"Latest"** (tag `latest`, ricreata a ogni build: contiene sempre l'ultimo commit di `main`);
+- su un tag `v*` pubblica invece una **release di versione** con release notes generate;
 - firma con il keystore nei secrets `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` /
   `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`; **se assenti genera un keystore temporaneo**
-  (l'APK è comunque installabile, ma ogni release è firmata con una chiave diversa — per gli
-  aggiornamenti installati usa i secrets);
-- pubblica l'APK (`mwutils-<tag>.apk`) su una **GitHub Release**.
+  (l'APK è comunque installabile, ma ogni release è firmata con una chiave diversa: Android
+  chiederà di disinstallare la versione precedente prima dell'aggiornamento).
 
-Per rilasciare:
+Per una release di versione:
 
 ```bash
-git tag v1.0.0 && git push origin v1.0.0
+git tag v1.5.0 && git push origin v1.5.0
 ```
 
 ## Note e limitazioni
