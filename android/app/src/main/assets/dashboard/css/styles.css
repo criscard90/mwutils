@@ -111,6 +111,10 @@
 #mw-root .card-foot { font-size: 11px; color: var(--mw-text-dim); margin-top: 6px; }
 
 /* ---------------- giftcard ---------------- */
+#mw-root .card.giftcard {
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.14), rgba(255, 152, 0, 0.06));
+  border-color: rgba(255, 193, 7, 0.22);
+}
 #mw-root .giftcard-head { display: flex; align-items: center; gap: 12px; }
 #mw-root .giftcard-icon { font-size: 30px; }
 #mw-root .giftcard-main { flex: 1; min-width: 0; }

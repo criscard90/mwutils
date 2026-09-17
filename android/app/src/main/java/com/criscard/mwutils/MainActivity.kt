@@ -346,9 +346,9 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun appVersion(): String = try {
-            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.1.0"
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.6.0"
         } catch (e: Exception) {
-            "1.1.0"
+            "1.6.0"
         }
     }
 
