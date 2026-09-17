@@ -578,8 +578,6 @@ function renderGoal() {
     '</div>' +
     '<div class="goal-form">' +
       '<input id="goal-input" class="goal-input" type="number" min="1" step="1" value="' + v.goalUsd + '">' +
-    '</div>' +
-    '<div class="goal-form goal-actions">' +
       '<button id="goal-save" class="goal-btn">Salva</button>' +
       '<button id="goal-reset" class="goal-btn ghost">Reset</button>' +
     '</div>';
