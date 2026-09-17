@@ -55,7 +55,8 @@ var state = {
   avgDaily: 0,
   avgMonthlyUsd: 0,
   avgDailyUsd: 0,
-  lastExclusiveCumulative: 0
+  lastExclusiveCumulative: 0,
+  exclusiveBalance: 0          // exclusive guadagnati meno riscatti, come l'estensione
 };
 
 /* ---------------- helper di formattazione ---------------- */
@@ -456,6 +457,9 @@ function aggregate(hits) {
   // cumulativo exclusive guadagnati (usato da goal e milestones)
   state.lastExclusiveCumulative = round2(sum(state.dailyExclusiveEarned));
 
+  // exclusive NETTI (guadagnati - riscattati): usati dal goal, come l'estensione
+  state.exclusiveBalance = round2(state.lastExclusiveCumulative - sum(state.dailyExclusiveOut));
+
   // media giornaliera exclusive (ultimi 30 giorni con valore > 0), come l'estensione
   var windowSize = Math.min(AVG_WINDOW_DAYS, state.dailyExclusiveEarned.length);
   var recent = state.dailyExclusiveEarned.slice(-windowSize).filter(function (v) {
@@ -496,26 +500,25 @@ function renderCards() {
   state.avgDailyUsd = state.labels.length ? (totalUsd / state.labels.length) : 0;
   byId('card-total').innerHTML = fmtUsd(totalUsd);
   byId('card-total-foot').innerHTML =
-    '<div>Media mese <strong>' + fmtUsd(state.avgMonthlyUsd) + '</strong> · Media giorno <strong>' +
-    fmtUsd(state.avgDailyUsd) + '</strong></div>' +
-    '<div class="card-foot-2">' + fmtPts(totalPts) + ' pts exclusive in ' + months +
-    ' mesi (' + state.labels.length + ' giorni)</div>';
+    '<div>Media mese <strong>' + fmtUsd(state.avgMonthlyUsd) + '</strong></div>' +
+    '<div>Media giorno <strong>' + fmtUsd(state.avgDailyUsd) + '</strong></div>' +
+    '<div class="card-foot-2">' + fmtPts(totalPts) + ' pts exclusive</div>';
 }
 
 /* ---------------- rendering: widget goal (come l'estensione) ---------------- */
 
-var GOAL_RING_R = 31;                       // r = (72 - 10) / 2
+var GOAL_RING_R = 23;                       // r = (56 - 10) / 2
 var GOAL_RING_C = 2 * Math.PI * GOAL_RING_R;
 
 function goalValues() {
   var goalUsd = Number(state.goalUsd) || DEFAULT_GOAL_USD;
   if (goalUsd <= 0) goalUsd = DEFAULT_GOAL_USD;
-  var currentUsd = round2((state.lastExclusiveCumulative || 0) * POINT_TO_USD);
+  var currentUsd = round2((state.exclusiveBalance || 0) * POINT_TO_USD);
   var percent = Math.min(1, Math.max(0, (currentUsd / goalUsd) || 0));
   var goalPts = goalUsd / POINT_TO_USD;
   var days = null;
   if (state.avgDaily > 0) {
-    var remainingPts = Math.max(0, goalPts - (state.lastExclusiveCumulative || 0));
+    var remainingPts = Math.max(0, goalPts - (state.exclusiveBalance || 0));
     days = Math.ceil(remainingPts / state.avgDaily);
   }
   var etaDate = null;
@@ -552,24 +555,25 @@ function renderGoal() {
   if (input && document.activeElement === input && byId('goal-ring')) {
     byId('goal-ring').setAttribute('stroke-dashoffset', String(offset));
     byId('goal-ring').setAttribute('stroke', color);
-    if (byId('goal-amounts')) byId('goal-amounts').textContent = fmtUsd(v.currentUsd) + ' / ' + fmtUsd(v.goalUsd);
-    if (byId('goal-progress')) byId('goal-progress').innerHTML = 'Avanzamento: <strong>' + v.percentLabel + '%</strong>';
+    if (byId('goal-amounts')) byId('goal-amounts').textContent = fmtUsd(v.currentUsd);
+    if (byId('goal-progress')) byId('goal-progress').innerHTML = 'Avanzamento: <strong>' + v.percentLabel + '%</strong> di ' + fmtUsd(v.goalUsd);
     if (byId('goal-eta')) byId('goal-eta').textContent = 'ETA: ' + etaLabel(v);
     return;
   }
 
   el.innerHTML =
     '<div class="goal-wrap">' +
-      '<svg class="goal-svg" width="72" height="72" viewBox="0 0 72 72">' +
-        '<circle cx="36" cy="36" r="' + GOAL_RING_R + '" stroke="rgba(255,255,255,0.10)" stroke-width="10" fill="none"/>' +
-        '<circle id="goal-ring" cx="36" cy="36" r="' + GOAL_RING_R + '" stroke="' + color + '" stroke-width="10" fill="none"' +
+      '<svg class="goal-svg" width="56" height="56" viewBox="0 0 56 56">' +
+        '<circle cx="28" cy="28" r="' + GOAL_RING_R + '" stroke="rgba(255,255,255,0.10)" stroke-width="10" fill="none"/>' +
+        '<circle id="goal-ring" cx="28" cy="28" r="' + GOAL_RING_R + '" stroke="' + color + '" stroke-width="10" fill="none"' +
         ' stroke-dasharray="' + GOAL_RING_C + '" stroke-dashoffset="' + offset + '" stroke-linecap="round"' +
-        ' transform="rotate(-90 36 36)"/>' +
+        ' transform="rotate(-90 28 28)"/>' +
       '</svg>' +
       '<div class="goal-info">' +
-        '<div class="goal-amounts" id="goal-amounts">' + fmtUsd(v.currentUsd) + ' / ' + fmtUsd(v.goalUsd) + '</div>' +
-        '<div class="goal-sub" id="goal-progress">Avanzamento: <strong>' + v.percentLabel + '%</strong></div>' +
+        '<div class="goal-amounts" id="goal-amounts">' + fmtUsd(v.currentUsd) + '</div>' +
+        '<div class="goal-sub" id="goal-progress">Avanzamento: <strong>' + v.percentLabel + '%</strong> di ' + fmtUsd(v.goalUsd) + '</div>' +
         '<div class="goal-sub" id="goal-eta">ETA: ' + etaLabel(v) + '</div>' +
+        '<div class="goal-sub">' + fmtPts(v.currentUsd / POINT_TO_USD) + ' pts exclusive (netti riscatti)</div>' +
       '</div>' +
     '</div>' +
     '<div class="goal-form">' +

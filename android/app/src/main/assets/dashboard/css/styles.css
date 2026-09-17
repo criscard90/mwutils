@@ -93,6 +93,8 @@
   display: grid; grid-template-columns: 1fr 1fr;
   gap: 12px; margin-bottom: 12px;
 }
+#mw-root .cards .card { min-width: 0; overflow-wrap: anywhere; }
+#mw-root .cards .card-value { font-size: 22px; }
 #mw-root .card {
   background: var(--mw-card);
   border: 1px solid var(--mw-card-border);
@@ -184,12 +186,12 @@
 #mw-root #card-total { font-size: 24px; }
 
 /* ---------------- widget goal ---------------- */
-#mw-root .goal-wrap { display: flex; align-items: center; gap: 12px; }
+#mw-root .goal-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%; }
 #mw-root .goal-svg { flex: 0 0 auto; }
 #mw-root .goal-info { min-width: 0; flex: 1; }
-#mw-root .goal-amounts { font-size: 17px; font-weight: 800; letter-spacing: -0.3px; }
-#mw-root .goal-sub { font-size: 11px; color: var(--mw-text-dim); margin-top: 2px; }
-#mw-root .goal-form { display: flex; gap: 6px; margin-top: 10px; }
+#mw-root .goal-amounts { font-size: 16px; font-weight: 800; letter-spacing: -0.3px; }
+#mw-root .goal-sub { font-size: 10.5px; color: var(--mw-text-dim); margin-top: 2px; overflow-wrap: anywhere; }
+#mw-root .goal-form { display: flex; gap: 6px; margin-top: 8px; max-width: 100%; }
 #mw-root .goal-input {
   flex: 1; min-width: 0;
   background: var(--mw-bg-soft); color: var(--mw-text);
