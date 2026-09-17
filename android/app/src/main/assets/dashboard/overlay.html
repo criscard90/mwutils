@@ -1,0 +1,125 @@
+<!-- Markup della dashboard iniettato come overlay full-screen in makerworld.com -->
+<div id="mw-app">
+
+  <!-- ============ HEADER ============ -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">MW</div>
+      <div>
+        <div class="header-title">MakerWorld Utils</div>
+        <div class="header-sub" id="header-user">Dashboard punti</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" id="btn-refresh" title="Aggiorna">⟳</button>
+      <button class="icon-btn danger" id="btn-logout" title="Logout">⎋</button>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <!-- ============ LOADING ============ -->
+    <section id="state-loading" class="state">
+      <div class="spinner"></div>
+      <div>Caricamento dati…</div>
+    </section>
+
+    <!-- ============ ERRORE ============ -->
+    <section id="state-error" class="state" hidden>
+      <div class="state-icon">⚠️</div>
+      <div id="error-msg" class="state-msg">Errore</div>
+      <button class="btn" id="btn-retry">Riprova</button>
+      <button class="btn ghost" id="btn-relogin">Rilogina</button>
+    </section>
+
+    <!-- ============ VUOTO ============ -->
+    <section id="state-empty" class="state" hidden>
+      <div class="state-icon">🌱</div>
+      <div class="state-msg">Nessun dato punti disponibile per questo account.</div>
+    </section>
+
+    <!-- ============ DASHBOARD ============ -->
+    <section id="state-dashboard" hidden>
+
+      <!-- Card principali -->
+      <div class="cards" id="cards">
+        <div class="card accent">
+          <div class="card-label">Punti disponibili</div>
+          <div class="card-value" id="card-balance">—</div>
+          <div class="card-foot" id="card-balance-foot"></div>
+        </div>
+        <div class="card">
+          <div class="card-label">Exclusive guadagnati</div>
+          <div class="card-value" id="card-exclusive">—</div>
+          <div class="card-foot" id="card-exclusive-foot"></div>
+        </div>
+        <div class="card">
+          <div class="card-label">Valore stimato (USD)</div>
+          <div class="card-value" id="card-usd">—</div>
+          <div class="card-foot">0,066 $ per punto exclusive</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Regular guadagnati</div>
+          <div class="card-value" id="card-regular">—</div>
+          <div class="card-foot" id="card-redeemed-foot"></div>
+        </div>
+      </div>
+
+      <!-- Gift card -->
+      <div class="card giftcard">
+        <div class="giftcard-head">
+          <div class="giftcard-icon">🎁</div>
+          <div class="giftcard-main">
+            <div id="giftcard-title">Gift Card</div>
+            <div id="giftcard-sub" class="card-foot"></div>
+          </div>
+          <select id="market-select" class="market-select"></select>
+        </div>
+        <div class="giftcard-progress"><div id="giftcard-bar" class="giftcard-bar"></div></div>
+      </div>
+
+      <!-- Grafico -->
+      <div class="card">
+        <div class="row-between">
+          <div class="card-label big">Punti per giorno</div>
+          <div class="range-group" id="range-group">
+            <button class="range-btn" data-range="30">30g</button>
+            <button class="range-btn active" data-range="90">90g</button>
+            <button class="range-btn" data-range="0">Tutto</button>
+          </div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart"></canvas></div>
+      </div>
+
+      <!-- Previsioni -->
+      <div class="card">
+        <div class="card-label big">Previsioni</div>
+        <div id="predictions" class="pred-list"></div>
+      </div>
+
+      <!-- Riepilogo mensile -->
+      <div class="card">
+        <div class="card-label big">Riepilogo mensile (exclusive)</div>
+        <div class="table-wrap" id="monthly-wrap"></div>
+      </div>
+
+      <!-- Modelli -->
+      <div class="card">
+        <div class="card-label big">Top modelli</div>
+        <div id="top-models" class="models-list"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-label big">Breakdown ultimo giorno</div>
+        <div id="last-breakdown" class="models-list"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-label big">Senza punti negli ultimi 5 giorni</div>
+        <div id="stale-models" class="models-list"></div>
+      </div>
+
+      <footer class="footer" id="footer">MW Utils</footer>
+    </section>
+  </main>
+</div>

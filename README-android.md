@@ -5,19 +5,23 @@ efettua il login con la propria utenza MakerWorld la prima volta, poi mostra **s
 
 ## Architettura
 
-- **App nativa Kotlin + WebView** (niente Capacitor/Flutter): la UI è una SPA
-  (`android/app/src/main/assets/dashboard/`) con HTML/CSS/JS e Chart.js.
-- **Login**: alla prima apertura l'app mostra makerworld.com dentro una WebView (con User-Agent
-  Chrome, così funziona anche il login Google). I cookie di sessione restano nel `CookieManager`
-  di Android: ai lanci successivi l'app va **direttamente sulla dashboard**.
-- **Bridge nativo**: le chiamate API passano da un bridge Kotlin (`MwBridge.fetchJson`), che
-  esegue le richieste HTTP **nativamente** con i cookie di sessione — zero problemi CORS
-  (cosa che bloccerebbe una web-app wrappata).
-- **Stesse API dell'estensione** (`mw_injected.js`):
+- **App nativa Kotlin + WebView full-immersive**: l'app carica `makerworld.com/en/points` e
+  **inietta la dashboard come overlay full-screen nel contesto della pagina** (stessa tecnica
+  dell'estensione Chrome: CSS via constructable stylesheets, markup e JS via `evaluateJavascript`).
+- **Perché l'iniezione**: le richieste HTTP native (`HttpURLConnection`) vengono bloccate da
+  Cloudflare con 403; eseguendo le fetch **nel contesto della pagina** usiamo il motore Chromium
+  vero, con cookie di sessione automatici, nessun problema CORS e nessun challenge Cloudflare.
+- **Login**: se l'utente non è autenticato, la pagina punti mostra la schermata di accesso;
+  una **probe same-origin** (fetch a `/api/v1/point-service/point-bill/my` eseguita ogni ~2,5s
+  dentro la pagina) rileva il login riuscito e inietta la dashboard. I cookie restano nel
+  `CookieManager` di Android: ai lanci successivi la dashboard appare subito.
+- **Stesse API dell'estensione** (`mw_injected.js`), chiamate con `fetch()` same-origin:
   - `/api/v1/point-service/point-bill/my?filter=all&limit=10000` — storico punti
   - `/en/points` (HTML) → buildId → `_next/data/{buildId}/en/points.json` — saldo punti
   - `_next/data/{buildId}/en.json` — profilo utente (nome, avatar, download/prints)
   - `/api/v1/point-service/product/products?shop={market}` — gift card
+- Chart.js viene caricato da CDN nel contesto pagina (come fa l'estensione); se il CDN non è
+  raggiungibile la dashboard funziona comunque senza grafico.
 
 ## Cosa mostra la dashboard
 

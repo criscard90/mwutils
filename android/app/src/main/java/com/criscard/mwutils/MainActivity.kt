@@ -2,58 +2,72 @@ package com.criscard.mwutils
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.FrameLayout
 import android.widget.Toast
-import androidx.webkit.WebViewAssetLoader
-import java.net.HttpURLConnection
-import java.net.URL
+import org.json.JSONObject
 
+/**
+ * App full-immersive: carica makerworld.com/en/points nel WebView e inietta la
+ * dashboard come overlay nel contesto della pagina (stessa tecnica dell'estensione
+ * Chrome). Tutte le chiamate HTTP verso MakerWorld avvengono dal contesto della
+ * pagina: motore Chromium vero, cookie di sessione automatici e nessun blocco
+ * Cloudflare/CORS (un client HTTP nativo verrebbe bloccato con 403).
+ */
 class MainActivity : Activity() {
 
     companion object {
-        private const val APP_ASSETS_ORIGIN = "https://appassets.androidplatform.net"
-        private const val DASHBOARD_URL = "$APP_ASSETS_ORIGIN/assets/dashboard/index.html"
-        private const val LOADING_URL = "$APP_ASSETS_ORIGIN/assets/dashboard/loading.html"
-        private const val MAKERWORLD = "https://makerworld.com"
-        private const val AUTH_CHECK_URL =
-            "$MAKERWORLD/api/v1/point-service/point-bill/my?filter=all&limit=1"
-        private const val POLL_INTERVAL_MS = 2000L
+        private const val MW = "https://makerworld.com"
+        private const val POINTS_URL = "$MW/en/points"
+        private const val AUTH_CHECK_URL = "$MW/api/v1/point-service/point-bill/my?filter=all&limit=1"
+        private const val PROBE_INTERVAL_MS = 2500L
 
         /** User-Agent da browser Chrome mobile: necessario per il login (incl. Google sign-in). */
         private const val UA =
             "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+
+        /**
+         * Probe di autenticazione eseguita NEL CONTESTO della pagina makerworld.com
+         * (same-origin): passa Cloudflare e porta automaticamente i cookie di sessione.
+         * Riporta l'esito al bridge nativo.
+         */
+        private val AUTH_PROBE_JS = """(function(){
+  if (window.__mwProbeBusy) { return 'busy'; }
+  window.__mwProbeBusy = true;
+  fetch("$AUTH_CHECK_URL", {credentials:"include"})
+    .then(function(r){ return r.text().then(function(t){ return {status:r.status, body:t}; }); })
+    .then(function(o){
+      window.__mwProbeBusy = false;
+      MwBridge.authResult(o.status, o.body.indexOf("hits") !== -1 ? 1 : 0);
+    })
+    .catch(function(){ window.__mwProbeBusy = false; MwBridge.authResult(-1, 0); });
+  return "ok";
+})();"""
     }
 
-    private enum class Mode { CHECKING, LOGIN, DASHBOARD }
+    private enum class Mode { LOADING, LOGIN, DASHBOARD }
 
-    private lateinit var root: FrameLayout
     private lateinit var webView: WebView
-    private lateinit var assetLoader: WebViewAssetLoader
+    private val handler = Handler(Looper.getMainLooper())
 
     @Volatile
-    private var mode = Mode.CHECKING
+    private var mode = Mode.LOADING
 
     @Volatile
-    private var loginPolling = false
+    private var probing = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        assetLoader = WebViewAssetLoader.Builder()
-            .setDomain("appassets.androidplatform.net")
-            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
-            .build()
 
         CookieManager.getInstance().setAcceptCookie(true)
 
@@ -65,7 +79,6 @@ class MainActivity : Activity() {
             userAgentString = UA
             loadWithOverviewMode = true
             useWideViewPort = true
-            cacheMode = WebSettings.LOAD_DEFAULT
         }
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         webView.setBackgroundColor(Color.parseColor("#0B0F14"))
@@ -73,18 +86,13 @@ class MainActivity : Activity() {
         webView.addJavascriptInterface(Bridge(), "MwBridge")
         webView.webViewClient = AppWebViewClient()
 
-        root = FrameLayout(this)
-        root.addView(
-            webView,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        )
-        setContentView(root)
+        setContentView(webView)
 
-        webView.loadUrl(LOADING_URL)
-        Thread { checkSession(initial = true) }.start()
+        // Partiamo direttamente dalla pagina punti: se l'utente non è loggato
+        // MakerWorld mostra la schermata di accesso, la probe rileva il login.
+        mode = Mode.LOADING
+        webView.loadUrl(POINTS_URL)
+        startProbing()
     }
 
     // ---------------------------------------------------------------------
@@ -92,130 +100,104 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------------
 
     private inner class AppWebViewClient : WebViewClient() {
-        override fun shouldInterceptRequest(
-            view: WebView,
-            request: WebResourceRequest
-        ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
 
-        override fun shouldOverrideUrlLoading(
-            view: WebView,
-            request: WebResourceRequest
-        ): Boolean {
-            val url = request.url.toString()
+        override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
             return when (mode) {
-                // In dashboard navighiamo solo sulle nostre pagine locali.
-                Mode.DASHBOARD -> !url.startsWith(APP_ASSETS_ORIGIN)
-                // In login lasciamo libera la navigazione (oauth/provider vari).
+                // In dashboard: i link interni a makerworld restano nell'app,
+                // i link esterni si aprono nel browser di sistema.
+                Mode.DASHBOARD -> {
+                    if (url.startsWith(MW)) false
+                    else {
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        } catch (e: Exception) { /* ignora */ }
+                        true
+                    }
+                }
+                // In login: navigazione libera (provider OAuth, ecc.)
                 else -> false
             }
         }
+
+        override fun onPageFinished(view: WebView, url: String?) {
+            when (mode) {
+                Mode.LOADING, Mode.LOGIN -> runProbe()
+                // Full-page navigation ricarica la pagina: reiniettiamo l'overlay.
+                Mode.DASHBOARD -> injectDashboard()
+            }
+        }
     }
 
     // ---------------------------------------------------------------------
-    // Sessione / flusso di navigazione
+    // Probe autenticazione (nel contesto pagina) + ciclo
     // ---------------------------------------------------------------------
 
-    /** Esito del controllo sessione. */
-    private enum class SessionResult { AUTHENTICATED, UNAUTHENTICATED, NETWORK_ERROR }
-
-    private fun checkSession(initial: Boolean) {
-        when (isSessionAlive()) {
-            SessionResult.AUTHENTICATED -> runOnUiThread { showDashboard() }
-            SessionResult.UNAUTHENTICATED -> runOnUiThread {
-                if (initial) startLogin(hint = true) else showDashboard()
-            }
-            SessionResult.NETWORK_ERROR -> runOnUiThread {
-                if (mode == Mode.CHECKING) {
-                    // Rete non disponibile: riproviamo tra 5 secondi.
-                    webView.loadUrl(LOADING_URL)
-                    Thread {
-                        try { Thread.sleep(5000) } catch (e: InterruptedException) { return@Thread }
-                        checkSession(initial)
-                    }.start()
-                }
-            }
-        }
+    private fun startProbing() {
+        if (probing) return
+        probing = true
+        scheduleProbe(1000)
     }
 
-    private fun isSessionAlive(): SessionResult {
-        return try {
-            val (code, body) = httpGet(AUTH_CHECK_URL)
-            when {
-                code == 200 && body.contains("\"hits\"") -> SessionResult.AUTHENTICATED
-                code == 200 -> SessionResult.UNAUTHENTICATED
-                code == 401 || code == 403 -> SessionResult.UNAUTHENTICATED
-                else -> SessionResult.NETWORK_ERROR
-            }
-        } catch (e: Exception) {
-            SessionResult.NETWORK_ERROR
-        }
+    private fun stopProbing() {
+        probing = false
+        handler.removeCallbacksAndMessages(null)
     }
 
-    private fun startLogin(hint: Boolean) {
-        mode = Mode.LOGIN
-        loginPolling = true
-        CookieManager.getInstance().flush()
-        webView.loadUrl("$MAKERWORLD/en")
-        if (hint) {
-            Toast.makeText(
-                this,
-                "Accedi con la tua utenza MakerWorld (email/password o Google)",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-        Thread { pollLogin() }.start()
+    private fun scheduleProbe(delay: Long) {
+        if (!probing) return
+        handler.postDelayed({
+            if (!probing) return@postDelayed
+            runProbe()
+            scheduleProbe(PROBE_INTERVAL_MS)
+        }, delay)
     }
 
-    private fun pollLogin() {
-        while (loginPolling) {
-            try {
-                Thread.sleep(POLL_INTERVAL_MS)
-            } catch (e: InterruptedException) {
-                return
-            }
-            if (isSessionAlive() == SessionResult.AUTHENTICATED) {
-                loginPolling = false
-                runOnUiThread {
-                    Toast.makeText(this, "Login effettuato!", Toast.LENGTH_SHORT).show()
-                    showDashboard()
-                }
-            }
-        }
-    }
-
-    private fun showDashboard() {
-        mode = Mode.DASHBOARD
-        loginPolling = false
-        CookieManager.getInstance().flush()
-        webView.loadUrl(DASHBOARD_URL)
+    private fun runProbe() {
+        if (mode == Mode.DASHBOARD) return
+        // evaluateJavascript esegue nella pagina corrente: se siamo su una
+        // pagina diversa da makerworld (es. OAuth Google) la fetch faila e
+        // la probe riparte al giro successivo.
+        webView.evaluateJavascript(AUTH_PROBE_JS, null)
     }
 
     // ---------------------------------------------------------------------
-    // Networking nativo (usato dal bridge JS: nessuna limitazione CORS)
+    // Iniezione della dashboard come overlay full-screen
     // ---------------------------------------------------------------------
 
-    private data class HttpResult(val code: Int, val body: String)
+    private fun readAsset(path: String): String =
+        assets.open(path).bufferedReader().use { it.readText() }
 
-    private fun httpGet(url: String): HttpResult {
-        val conn = URL(url).openConnection() as HttpURLConnection
-        try {
-            conn.connectTimeout = 15000
-            conn.readTimeout = 30000
-            conn.instanceFollowRedirects = false
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("User-Agent", UA)
-            conn.setRequestProperty("Accept", "application/json, text/html, */*")
-            conn.setRequestProperty(
-                "Cookie",
-                CookieManager.getInstance().getCookie("https://makerworld.com") ?: ""
-            )
-            val code = conn.responseCode
-            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
-            return HttpResult(code, body)
-        } finally {
-            conn.disconnect()
+    private fun injectDashboard() {
+        val html = readAsset("dashboard/overlay.html")
+        val css = readAsset("dashboard/css/styles.css")
+        val js = readAsset("dashboard/js/app.js")
+
+        val script = buildString {
+            append("(function(){")
+            append("var d=document;")
+            append("var old=d.getElementById('mw-root'); if(old){old.remove();}")
+            // CSS: preferiamo constructable stylesheets (immuni da CSP),
+            // con fallback su <style> inline.
+            append("try{")
+            append("var sheet=new CSSStyleSheet(); sheet.replaceSync(")
+            append(JSONObject.quote(css))
+            append("); document.adoptedStyleSheets=document.adoptedStyleSheets.concat([sheet]);")
+            append("}catch(e){")
+            append("var st=d.createElement('style'); st.textContent=")
+            append(JSONObject.quote(css))
+            append("; d.head.appendChild(st);")
+            append("}")
+            // Markup della dashboard
+            append("var root=d.createElement('div'); root.id='mw-root'; root.innerHTML=")
+            append(JSONObject.quote(html))
+            append("; d.body.appendChild(root);")
+            append("try{d.body.style.overflow='hidden';}catch(e){}")
+            // JS della dashboard: eseguito direttamente da evaluateJavascript
+            // (non soggetto a CSP, a differenza di uno <script> inline).
+            append(js)
+            append("})();")
         }
+        webView.evaluateJavascript(script, null)
     }
 
     // ---------------------------------------------------------------------
@@ -224,37 +206,44 @@ class MainActivity : Activity() {
 
     inner class Bridge {
 
+        /** Chiamata dalla probe JS con l'esito del controllo autenticazione. */
         @JavascriptInterface
-        fun fetchJson(url: String): String = fetchUrl(url)
-
-        @JavascriptInterface
-        fun fetchText(url: String): String = fetchUrl(url)
-
-        private fun fetchUrl(url: String): String {
-            // Solo API/pages di makerworld.com sono accessibili dal bridge.
-            if (!url.startsWith(MAKERWORLD)) {
-                return "{\"__error__\":\"URL non consentita\"}"
-            }
-            return try {
-                val (code, body) = httpGet(url)
-                if (code in 200..299) body
-                else "{\"__error__\":\"HTTP $code\",\"__status__\":$code}"
-            } catch (e: Exception) {
-                val msg = (e.message ?: "errore di rete").replace("\"", "'")
-                "{\"__error__\":\"$msg\"}"
+        fun authResult(status: Int, authenticated: Int) {
+            if (authenticated != 1 || mode == Mode.DASHBOARD) return
+            CookieManager.getInstance().flush() // persiste la sessione per i prossimi avvii
+            runOnUiThread {
+                if (mode == Mode.DASHBOARD) return@runOnUiThread
+                stopProbing()
+                mode = Mode.DASHBOARD
+                Toast.makeText(this@MainActivity, "Login effettuato!", Toast.LENGTH_SHORT).show()
+                if (webView.url != null && webView.url!!.startsWith("$MW/en/points")) {
+                    injectDashboard()
+                } else {
+                    webView.loadUrl(POINTS_URL) // onPageFinished inietterà la dashboard
+                }
             }
         }
 
+        /** Richiesto dalla dashboard quando le API rispondono 401/403 (sessione scaduta). */
         @JavascriptInterface
         fun openLogin() {
-            runOnUiThread { startLogin(hint = true) }
+            runOnUiThread {
+                mode = Mode.LOADING
+                startProbing()
+                webView.loadUrl(POINTS_URL)
+                Toast.makeText(this@MainActivity, "Sessione scaduta: effettua di nuovo l'accesso", Toast.LENGTH_LONG).show()
+            }
         }
 
         @JavascriptInterface
         fun logout() {
             CookieManager.getInstance().removeAllCookies(null)
             CookieManager.getInstance().flush()
-            runOnUiThread { startLogin(hint = false) }
+            runOnUiThread {
+                mode = Mode.LOADING
+                startProbing()
+                webView.loadUrl(POINTS_URL)
+            }
         }
 
         @JavascriptInterface
@@ -266,9 +255,9 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun appVersion(): String = try {
-            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0.0"
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.1.0"
         } catch (e: Exception) {
-            "1.0.0"
+            "1.1.0"
         }
     }
 
@@ -277,16 +266,16 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------------
 
     override fun onBackPressed() {
-        // In login permettiamo il back del browser interno; in dashboard chiudiamo l'app.
-        if (mode == Mode.LOGIN && webView.canGoBack()) {
-            webView.goBack()
-        } else {
-            super.onBackPressed()
+        when (mode) {
+            // In dashboard il back riduce l'app (full-immersive), senza navigare via.
+            Mode.DASHBOARD -> moveTaskToBack(true)
+            Mode.LOGIN -> if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
+            else -> super.onBackPressed()
         }
     }
 
     override fun onDestroy() {
-        loginPolling = false
+        stopProbing()
         super.onDestroy()
     }
 }

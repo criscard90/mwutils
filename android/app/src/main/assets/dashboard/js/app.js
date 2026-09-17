@@ -7,35 +7,42 @@
 
 var POINT_TO_USD = 0.066;
 
-/* ---------------- bridge helpers ---------------- */
+/* ---------------- fetch helpers (same-origin, come l'estensione) ---------------- */
 
 function bridge() {
-  return (typeof window.MwBridge !== 'undefined') ? window.MwBridge : null;
+  return (typeof window.MwBridge !== 'undefined' && window.MwBridge) ? window.MwBridge : null;
 }
 
+/** GET JSON same-origin: i cookie di sessione sono inviati automaticamente. */
 function fetchJson(url) {
-  var b = bridge();
-  if (!b) return Promise.reject(new Error('Bridge non disponibile'));
-  return new Promise(function (resolve, reject) {
-    setTimeout(function () { // il bridge è sincrono: async per non bloccare la UI
-      try {
-        var json = JSON.parse(b.fetchJson(url));
-        if (json && json.__error__) throw new Error(json.__error__);
-        resolve(json);
-      } catch (e) {
-        reject(e instanceof Error ? e : new Error(String(e)));
-      }
-    }, 0);
+  return fetch(url, { credentials: 'include' }).then(function (r) {
+    return r.text().then(function (t) {
+      var json = null;
+      try { json = JSON.parse(t); } catch (e) { /* corpo non JSON */ }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (json === null) throw new Error('Risposta non valida dal server');
+      return json;
+    });
   });
 }
 
+/** GET testo/HTML same-origin (per estrarre il buildId). */
 function fetchText(url) {
-  var b = bridge();
-  if (!b) return Promise.reject(new Error('Bridge non disponibile'));
+  return fetch(url, { credentials: 'include' }).then(function (r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.text();
+  });
+}
+
+/** Carica Chart.js da CDN (come fa l'estensione) solo quando serve. */
+function ensureChart() {
+  if (window.Chart) return Promise.resolve();
   return new Promise(function (resolve, reject) {
-    setTimeout(function () {
-      try { resolve(b.fetchText(url)); } catch (e) { reject(e); }
-    }, 0);
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+    s.onload = function () { resolve(); };
+    s.onerror = function () { reject(new Error('Chart.js non disponibile')); };
+    document.head.appendChild(s);
   });
 }
 
@@ -553,6 +560,9 @@ function refresh() {
       renderHeader();
       renderCards();
       renderGiftcard();
+      return ensureChart().catch(function () { return null; });
+    })
+    .then(function () {
       renderChart();
       renderPredictions();
       renderMonthly();
@@ -603,7 +613,14 @@ function bindEvents() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', function () {
+// L'esecuzione avviene anche da overlay iniettato a pagina già caricata:
+// avvia subito se il DOM è pronto, altrimenti aspetta DOMContentLoaded.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function () {
+    bindEvents();
+    refresh();
+  });
+} else {
   bindEvents();
   refresh();
-});
+}
