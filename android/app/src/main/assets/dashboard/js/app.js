@@ -19,6 +19,8 @@ var DEFAULT_GOAL_USD = 1000;
 var MILESTONES = [100, 500, 1000, 5000];
 var AVG_WINDOW_DAYS = 30;               // finestra media giornaliera (come estensione)
 
+var POINT_BILL_URL = 'https://makerworld.com/api/v1/point-service/point-bill/my?filter=all&limit=10000';
+var REALTIME_MS = 5000;                 // aggiornamento automatico come l'estensione (5s)
 var MARKETS = ['IT', 'US', 'EU', 'UK', 'DE', 'FR', 'ES', 'JP', 'CN', 'AU', 'CA', 'BR'];
 var CURRENCY_SYMBOLS = {
   USD: '$', EUR: '€', GBP: '£', CNY: '¥', JPY: '¥', AUD: 'A$',
@@ -175,13 +177,45 @@ function fetchText(url) {
 
 /** Storico movimenti punti: /api/v1/point-service/point-bill/my */
 function fetchPointBill() {
-  return fetchJson('https://makerworld.com/api/v1/point-service/point-bill/my?filter=all&limit=10000')
+  return fetchJson(POINT_BILL_URL)
     .then(function (json) {
       var hits = (json && Array.isArray(json.hits)) ? json.hits.slice() : [];
       if (!hits.length) throw new Error('EMPTY');
       hits.sort(function (a, b) { return new Date(a.createTime) - new Date(b.createTime); });
       return hits;
     });
+}
+
+/* ---------------- realtime (replica dell'estensione: tick ogni 5s) ---------------- */
+
+var realtimeTimer = null;
+
+/**
+ * Tick realtime: ricarica SOLO lo storico punti e ridisegna, silenzioso in
+ * caso di errore (come la fetchAndUpdate dell'estensione). Non tocca gift
+ * card e profilo (l'estensione non li aggiorna nel tick) e non interferisce
+ * con un refresh completo in corso.
+ */
+function realtimeTick() {
+  if (document.hidden || state.refreshing) return;
+  fetchJson(POINT_BILL_URL).then(function (json) {
+    var hits = (json && Array.isArray(json.hits)) ? json.hits.slice() : [];
+    if (!hits.length) return;
+    hits.sort(function (a, b) { return new Date(a.createTime) - new Date(b.createTime); });
+    aggregate(hits);
+    renderAll();
+    return ensureChart().then(function () { renderChart(); }).catch(function () { /* ok senza grafico */ });
+  }).catch(function () { /* silenzioso, come l'estensione */ });
+}
+
+function startRealtime() {
+  if (realtimeTimer) return;
+  realtimeTimer = setInterval(realtimeTick, REALTIME_MS);
+  // All'app che torna in primo piano aggiorniamo subito (il tick salta
+  // mentre la pagina è nascosta per risparmiare batteria e traffico).
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) realtimeTick();
+  });
 }
 
 /** Estrae il buildId Next.js dall'HTML (ignora i path non-build come 'chunks'). */
@@ -1033,7 +1067,8 @@ function refresh() {
 }
 
 function boot() {
-  bindEvents();   // idempotente: si riaggancia se l'overlay è stato ricreato
+  bindEvents();
+  startRealtime(); // idempotente: un solo timer anche dopo re-iniezioni   // idempotente: si riaggancia se l'overlay è stato ricreato
   if (window.__mwDashBooted) {
     // Overlay ricreato (nuova iniezione): ridisegna senza rifare il fetch.
     if (state.labels.length) renderAll(); else refresh();
