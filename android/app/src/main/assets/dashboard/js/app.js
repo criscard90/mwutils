@@ -345,8 +345,11 @@ function fetchGiftcards(market) {
       return { error: 'Nessuna gift card per il market ' + market };
     });
   }).catch(function (e) {
+    // La gift card NON deve mai propagare 401/403 come "sessione scaduta":
+    // l'API product/products risponde 403 anche con sessione valida (CSRF).
+    // L'errore resta confinato nella card, il resto della dashboard funziona.
     var msg = (e && e.message) ? e.message : String(e);
-    if (/HTTP (401|403)/.test(msg)) throw e;   // sessione scaduta: gestita a monte
+    if (/HTTP (401|403)/.test(msg)) return { error: 'API gift card non disponibile' };
     return { error: 'API gift card non raggiungibile (' + msg + ')' };
   });
 }

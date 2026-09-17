@@ -31,6 +31,9 @@ class MainActivity : Activity() {
         private const val AUTH_CHECK_URL = "$MW/api/v1/point-service/point-bill/my?filter=all&limit=1"
         private const val PROBE_INTERVAL_MS = 2500L
 
+        /** Cooldown anti-loop tra due richieste di re-login dalla dashboard. */
+        private const val OPEN_LOGIN_COOLDOWN_MS = 20000L
+
         /** User-Agent da browser Chrome mobile: necessario per il login (incl. Google sign-in). */
         private const val UA =
             "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
@@ -47,7 +50,10 @@ class MainActivity : Activity() {
     .then(function(r){ return r.text().then(function(t){ return {status:r.status, body:t}; }); })
     .then(function(o){
       window.__mwProbeBusy = false;
-      MwBridge.authResult(o.status, o.body.indexOf("hits") !== -1 ? 1 : 0);
+      // Autenticati SOLO con HTTP 200 e corpo che contiene "hits":
+      // un 401/403 (anche con "hits" nel corpo) NON è una sessione valida.
+      var ok = (o.status === 200 && o.body.indexOf("hits") !== -1) ? 1 : 0;
+      MwBridge.authResult(o.status, ok);
     })
     .catch(function(){ window.__mwProbeBusy = false; MwBridge.authResult(-1, 0); });
   return "ok";
@@ -65,6 +71,9 @@ class MainActivity : Activity() {
 
     @Volatile
     private var probing = false
+
+    /** Timestamp dell'ultimo openLogin richiesto (anti-loop). */
+    private var lastOpenLoginAt = 0L
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -318,6 +327,18 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun openLogin() {
             runOnUiThread {
+                // Anti-loop: se la dashboard richiede il re-login più volte di
+                // seguito in breve tempo (es. un'API che risponde 403 anche con
+                // sessione valida), NON ricarichiamo la pagina: restiamo in
+                // dashboard dove l'utente può usare "Aggiorna".
+                val now = System.currentTimeMillis()
+                if (now - lastOpenLoginAt < OPEN_LOGIN_COOLDOWN_MS) {
+                    Toast.makeText(this@MainActivity,
+                        "Sessione non valida: tocca Aggiorna nella dashboard per riprovare",
+                        Toast.LENGTH_LONG).show()
+                    return@runOnUiThread
+                }
+                lastOpenLoginAt = now
                 mode = Mode.LOADING
                 startProbing()
                 webView.loadUrl(POINTS_URL)
