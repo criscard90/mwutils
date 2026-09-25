@@ -55,6 +55,12 @@ Più, sotto:
   JSON non risponde si usa in fallback la pagina `/en/my/data-overview/model` (dati da
   `__NEXT_DATA__`, senza bisogno di buildId); in caso di errore la card riporta il motivo
   esatto (`errore HTTP …`, `struttura non riconosciuta`, `nessun dato nel periodo`, …).
+- **Popular searches**: top 10 ricerche del giorno dalla pagina
+  `/en/my/creator-center/popular-searches` (dati da `__NEXT_DATA__` →
+  `inspirationalWordsList`, stessa sorgente e normalizzazione dell'estensione: score 0-100,
+  dedup case-insensitive, ordinamento decrescente). Lista con rango, parola e barra in stile
+  MakerWorld; il motivo di ogni errore resta scritto sulla card, e se la cache è già presente
+  un refetch fallito non cancella i dati vecchi.
 - **Quanto avrò tra…**: proiezione del **saldo attuale** (punti exclusive netti + corrispettivo USD)
   dopo **7 / 15 / 30 giorni** con la media giornaliera — nessun riferimento al totale cumulato
   storico.

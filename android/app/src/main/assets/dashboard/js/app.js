@@ -53,6 +53,7 @@ var state = {
   chart: null,
   globalChart: null,          // grafico andamento globale (downloads/prints)
   globalSeries: null,         // { labels, downloads, prints } cache
+  popular: null,              // top ricerche MakerWorld [{word,score}] cache
   goalUsd: Number(localStorage.getItem(GOAL_KEY)) || DEFAULT_GOAL_USD,
   refreshing: false,
   boundRoot: null,            // root su cui sono agganciati i listener delegati
@@ -633,6 +634,115 @@ function onGlobalStartChange(v) {
   if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) { syncGlobalInput(); return; }
   localStorage.setItem(GLOBAL_START_KEY, v);
   loadGlobalChart();
+}
+
+/* ---------------- popular searches (pagina creator-center, come MW) ---------------- */
+
+var POPULAR_URL = 'https://makerworld.com/en/my/creator-center/popular-searches';
+var POPULAR_TOP_N = 10;   // top 10 come la pagina MakerWorld
+
+/** Trova inspirationalWordsList nel JSON della pagina (path flessibili, come findStatistical). */
+function findPopularList(j) {
+  if (!j) return null;
+  var cands = [];
+  if (j.pageProps) {
+    cands.push(j.pageProps.inspirationalWordsList);
+    if (j.pageProps.data) cands.push(j.pageProps.data.inspirationalWordsList);
+  }
+  if (j.props && j.props.pageProps) {
+    cands.push(j.props.pageProps.inspirationalWordsList);
+    if (j.props.pageProps.data) cands.push(j.props.pageProps.data.inspirationalWordsList);
+    if (j.props.initialProps && j.props.initialProps.pageProps) {
+      cands.push(j.props.initialProps.pageProps.inspirationalWordsList);
+    }
+  }
+  cands.push(j.inspirationalWordsList);
+  for (var i = 0; i < cands.length; i++) if (Array.isArray(cands[i])) return cands[i];
+  return null;
+}
+
+/**
+ * Converte il JSON della pagina in {list:[{word,score}]} oppure {error:motivo}.
+ * Stessa normalizzazione dell'estensione: score 0-100, dedup per word (case
+ * insensitive, tiene il punteggio più alto), ordinamento decrescente, top 10.
+ */
+function popularFromJson(j) {
+  var arr = findPopularList(j);
+  if (!arr) return { error: 'struttura non riconosciuta' };
+  var byWord = new Map();
+  for (var i = 0; i < arr.length; i++) {
+    var it = arr[i] || {};
+    var word = String(it.word || it.keyword || it.text || '').trim();
+    var score = Math.round(Number(it.score != null ? it.score : it.count) || 0);
+    if (!word || score < 0) continue;
+    score = Math.min(100, score);
+    var key = word.toLowerCase();
+    var prev = byWord.get(key);
+    if (!prev || prev.score < score) byWord.set(key, { word: word, score: score });
+  }
+  var list = Array.from(byWord.values()).sort(function (a, b) {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.word < b.word ? -1 : (a.word > b.word ? 1 : 0);
+  }).slice(0, POPULAR_TOP_N);
+  if (!list.length) return { error: 'nessun dato' };
+  return { list: list };
+}
+
+/** Fetch della pagina popular-searches: dati da __NEXT_DATA__ (come l'estensione). */
+function fetchPopular() {
+  return fetchText(POPULAR_URL).then(function (html) {
+    var m = String(html).match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+    if (!m) throw new Error('pagina non disponibile');
+    return popularFromJson(JSON.parse(m[1]));
+  }).catch(function (e) {
+    var msg = (e && e.message) ? e.message : String(e);
+    var mm = msg.match(/HTTP (\d+)/);
+    if (mm) return { error: 'errore HTTP ' + mm[1] };
+    if (/non disponibile|non valida|Unexpected/.test(msg)) return { error: 'pagina non disponibile' };
+    return { error: (msg || 'errore sconosciuto').slice(0, 40) };
+  });
+}
+
+function popularMsg(text) {
+  var el = byId('popular-msg');
+  if (el) el.textContent = text || '';
+}
+
+/** Lista rank + barra + score, stile pagina MW (righe scure, barra graduata). */
+function renderPopular() {
+  var el = byId('popular-list');
+  if (!el || !state.popular || !state.popular.length) return;
+  var rows = '';
+  for (var i = 0; i < state.popular.length; i++) {
+    var it = state.popular[i];
+    rows += '<div class="pop-row">' +
+      '<span class="pop-rank">' + (i + 1) + '</span>' +
+      '<span class="pop-word" title="' + escapeHtml(it.word) + '">' + escapeHtml(it.word) + '</span>' +
+      '<span class="pop-track"><span class="pop-bar" style="width:' + it.score + '%"></span></span>' +
+      '<span class="pop-score">' + it.score + '</span>' +
+      '</div>';
+  }
+  el.innerHTML = rows;
+}
+
+/**
+ * Carica la lista; se c'è già una cache e il refetch fallisce i dati vecchi
+ * restano (nessun flash di errore, come per l'andamento globale).
+ */
+function loadPopular() {
+  if (!state.popular) popularMsg('Caricamento popular searches…');
+  return fetchPopular().then(function (r) {
+    if (r && r.list) {
+      state.popular = r.list;
+      popularMsg('');
+      renderPopular();
+      return;
+    }
+    var why = (r && r.error) || 'non disponibili';
+    if (window.console && console.warn) console.warn('[mw] popular searches: ' + why);
+    if (state.popular) return;              // cache presente: silenzio, dati vecchi validi
+    popularMsg('Popular searches: ' + why);
+  });
 }
 
 /* ---------------- aggregazione (replica dell'estensione) ---------------- */
@@ -1267,6 +1377,7 @@ function renderAll() {
   renderMonthly();
   renderModels();
   syncGlobalInput();
+  renderPopular();            // ridisegno dalla cache (fetch solo in refresh)
 }
 
 function refresh() {
@@ -1300,6 +1411,10 @@ function refresh() {
       return ensureChart()
         .then(function () { renderChart(); return loadGlobalChart(); })
         .catch(function () { /* dashboard utilizzabile anche senza grafico */ });
+    })
+    .then(function () {
+      // Popular searches: indipendente dal grafico, errori confinati alla card.
+      return loadPopular();
     })
     .catch(function (e) {
       state.refreshing = false;
