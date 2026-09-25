@@ -2,7 +2,7 @@
  * MW Utils — Dashboard Android
  * Replica della dashboard "points" dell'estensione Chrome
  * (mw_injected.js): stesse API, stessa aggregazione, stessi
- * calcoli di goal, milestones e gift card.
+ * calcoli di goal, proiezioni e gift card.
  *
  * Il codice gira DENTRO la pagina makerworld.com (iniettato via
  * evaluateJavascript): le fetch sono same-origin, quindi passano
@@ -16,8 +16,9 @@ var POINT_TO_USD = 0.066;               // 1 punto = 0.066 USD
 var GOAL_KEY = 'mw_points_goal_usd';    // goal USD salvato dall'utente
 var MARKET_KEY = 'mw_market';           // market delle gift card
 var DEFAULT_GOAL_USD = 1000;
-var MILESTONES = [100, 500, 1000, 5000];
+var PROJECTION_DAYS = [7, 15, 30];      // proiezioni saldo: N giorni avanti (dal saldo attuale)
 var AVG_WINDOW_DAYS = 30;               // finestra media giornaliera (come estensione)
+var GLOBAL_START_KEY = 'mw_global_start_date'; // data inizio andamento globale (come estensione)
 
 var POINT_BILL_URL = 'https://makerworld.com/api/v1/point-service/point-bill/my?filter=all&limit=10000';
 var REALTIME_MS = 5000;                 // aggiornamento automatico come l'estensione (5s)
@@ -50,6 +51,8 @@ var state = {
   market: localStorage.getItem(MARKET_KEY) || null,
   range: 30,                  // 7 | 30 | 365
   chart: null,
+  globalChart: null,          // grafico andamento globale (downloads/prints)
+  globalSeries: null,         // { labels, downloads, prints } cache
   goalUsd: Number(localStorage.getItem(GOAL_KEY)) || DEFAULT_GOAL_USD,
   refreshing: false,
   boundRoot: null,            // root su cui sono agganciati i listener delegati
@@ -204,7 +207,11 @@ function realtimeTick() {
     hits.sort(function (a, b) { return new Date(a.createTime) - new Date(b.createTime); });
     aggregate(hits);
     renderAll();
-    return ensureChart().then(function () { renderChart(); }).catch(function () { /* ok senza grafico */ });
+    return ensureChart().then(function () {
+      renderChart();
+      // il grafico globale viene solo ridisegnato dalla cache (nessun nuovo fetch nel tick)
+      if (state.globalSeries) renderGlobalChart();
+    }).catch(function () { /* ok senza grafico */ });
   }).catch(function () { /* silenzioso, come l'estensione */ });
 }
 
@@ -388,6 +395,159 @@ function fetchGiftcards(market) {
   });
 }
 
+/* ---------------- andamento globale (downloads/stampi, tab "Global" estensione) ---------------- */
+
+/** Data inizio: salvata dall'utente o 30 giorni fa (come l'estensione). */
+function globalStartDate() {
+  var v = localStorage.getItem(GLOBAL_START_KEY);
+  if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  return dateKeyOf(new Date(Date.now() - 30 * 86400000));
+}
+
+/** Data fine: ieri (come yesterdayYMD nell'estensione). */
+function globalEndDate() {
+  return dateKeyOf(new Date(Date.now() - 86400000));
+}
+
+/** Estrazione robusta dei conteggi (stessa dell'estensione: numero o {default:n}). */
+function extractCount(d, keys) {
+  if (!d) return 0;
+  for (var i = 0; i < keys.length; i++) {
+    var v = d[keys[i]];
+    if (typeof v === 'number') return v;
+    if (v && typeof v.default === 'number') return v.default;
+  }
+  return 0;
+}
+
+/**
+ * Serie globale downloads/stampi: _next/data/{buildId}/en/my/data-overview/model.json
+ * (stesso endpoint e stessa estrazione di loadGlobalIfNeeded nell'estensione).
+ * In caso di errore restituisce null: il resto della dashboard non ne è influenzato.
+ */
+function fetchGlobalSeries(buildId) {
+  var id = buildId || state.buildId;
+  if (!id) return Promise.resolve(null);
+  var url = 'https://makerworld.com/_next/data/' + id + '/en/my/data-overview/model.json' +
+    '?startDate=' + globalStartDate() + '&endDate=' + globalEndDate();
+  return fetchJson(url).then(function (j) {
+    var arr = (j && j.pageProps && j.pageProps.statisticalData) ||
+              (j && j.statisticalData) ||
+              (j && j.pageProps && j.pageProps.data && j.pageProps.data.statisticalData) ||
+              null;
+    var dateList = (arr && Array.isArray(arr.dateList)) ? arr.dateList : null;
+    if (!dateList || !dateList.length) return null;
+
+    var rows = dateList.map(function (d) {
+      return {
+        label: String((d && d.intervalVal) || '').replace(/\//g, '-'),
+        downloads: extractCount(d, ['downloadCount', 'download', 'downloads']),
+        prints: extractCount(d, ['printCount', 'print', 'prints'])
+      };
+    }).filter(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(r.label); });
+    rows.sort(function (a, b) { return a.label < b.label ? -1 : (a.label > b.label ? 1 : 0); });
+    if (!rows.length) return null;
+    return {
+      labels: rows.map(function (r) { return r.label; }),
+      downloads: rows.map(function (r) { return r.downloads; }),
+      prints: rows.map(function (r) { return r.prints; })
+    };
+  }).catch(function () { return null; });
+}
+
+function destroyGlobalChart() {
+  try {
+    var canvas = byId('chart-global');
+    if (canvas && window.Chart && window.Chart.getChart) {
+      var existing = window.Chart.getChart(canvas);
+      if (existing) existing.destroy();
+    }
+  } catch (e) { /* ignora */ }
+  if (state.globalChart) {
+    try { state.globalChart.destroy(); } catch (e) { /* ignora */ }
+    state.globalChart = null;
+  }
+}
+
+function globalMsg(text) {
+  var el = byId('global-msg');
+  if (el) el.textContent = text || '';
+}
+
+/** Grafico line downloads/stampi (colori e opzioni della tab Global dell'estensione). */
+function renderGlobalChart() {
+  var canvas = byId('chart-global');
+  if (!canvas || !window.Chart || !state.globalSeries) return;
+
+  destroyGlobalChart();
+  var s = state.globalSeries;
+  state.globalChart = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: s.labels.map(shortDate),
+      datasets: [
+        {
+          label: 'Downloads', data: s.downloads,
+          borderColor: 'rgba(33,150,243,0.9)', backgroundColor: 'rgba(33,150,243,0.2)',
+          fill: false, tension: 0.2, pointRadius: 0, borderWidth: 2
+        },
+        {
+          label: 'Prints', data: s.prints,
+          borderColor: 'rgba(156,39,176,0.9)', backgroundColor: 'rgba(156,39,176,0.2)',
+          fill: false, tension: 0.2, pointRadius: 0, borderWidth: 2
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#8B9BAA', boxWidth: 12, boxHeight: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: function (c) { return c.dataset.label + ': ' + fmtInt(c.parsed.y); }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#5B6B7A', autoSkip: true, maxTicksLimit: 7, font: { size: 10 } },
+          grid: { display: false }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { color: '#5B6B7A', font: { size: 10 } },
+          grid: { color: 'rgba(255,255,255,0.05)' }
+        }
+      }
+    }
+  });
+}
+
+/** Carica e disegna la serie globale; gli errori restano silenziosi nella card. */
+function loadGlobalChart() {
+  return fetchGlobalSeries(state.buildId).then(function (s) {
+    if (!s) { globalMsg('Dati globali non disponibili.'); return null; }
+    state.globalSeries = s;
+    globalMsg('');
+    return ensureChart().then(function () { renderGlobalChart(); }).catch(function () { /* ok senza grafico */ });
+  });
+}
+
+/** Sincronizza l'input data con la data inizio corrente (non tocca mentre l'utente digita). */
+function syncGlobalInput() {
+  var input = byId('global-start');
+  if (input && document.activeElement !== input) input.value = globalStartDate();
+}
+
+function onGlobalStartChange(v) {
+  if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) { syncGlobalInput(); return; }
+  localStorage.setItem(GLOBAL_START_KEY, v);
+  loadGlobalChart();
+}
+
 /* ---------------- aggregazione (replica dell'estensione) ---------------- */
 
 function aggregate(hits) {
@@ -491,7 +651,7 @@ function aggregate(hits) {
   state.modelsNoPointsLast5 = stale;
   state.lastDateStr = lastKey;
 
-  // cumulativo exclusive guadagnati (usato da goal e milestones)
+  // cumulativo exclusive guadagnati (usato dal goal)
   state.lastExclusiveCumulative = round2(sum(state.dailyExclusiveEarned));
 
   // exclusive NETTI (guadagnati - riscattati): usati dal goal, come l'estensione
@@ -817,44 +977,49 @@ function onMarketChange(market) {
   });
 }
 
-/* ---------------- rendering: milestones ("Quando raggiungerò…") ---------------- */
+/* ---------------- rendering: proiezioni di saldo (7 / 15 / 30 giorni) ---------------- */
 
+/**
+ * Proiezioni dal SALDO ATTUALE (punti netti e corrispettivo USD): quanto varrò
+ * teoricamente tra 7, 15 e 30 giorni con la media giornaliera attuale.
+ * NON si usa il totale cumulato storico come riferimento.
+ */
 function renderMilestones() {
   var wrap = byId('milestones');
   if (!wrap) return;
   wrap.innerHTML = '';
 
   var avg = state.avgDaily;
-  var base = state.lastExclusiveCumulative || 0;
-  var lastDate = state.lastDateStr ? ymdToUtc(state.lastDateStr) : null;
+  var base = round2(state.exclusiveBalance || 0);   // saldo attuale (exclusive netti)
+  var today = new Date();
 
-  if (!avg || avg <= 0 || !lastDate) {
-    wrap.innerHTML = '<div class="muted">Attività exclusive insufficiente per stimare le tappe.</div>';
+  if (avg <= 0) {
+    wrap.innerHTML = '<div class="muted">Attività exclusive insufficiente per stimare le proiezioni.</div>';
     return;
   }
 
   var head = document.createElement('div');
   head.className = 'model-sub';
   head.style.marginBottom = '8px';
-  head.textContent = 'Media exclusive ' + fmtPts(avg) + ' pts/giorno (' + fmtUsd(avg * POINT_TO_USD) +
-    ') · totale attuale ' + fmtPts(base) + ' pts (' + fmtUsd(base * POINT_TO_USD) + ')';
+  head.textContent = 'Saldo attuale ' + fmtPts(base) + ' pts (' + fmtUsd(base * POINT_TO_USD) +
+    ') · media ' + fmtPts(avg) + ' pts/giorno (' + fmtUsd(avg * POINT_TO_USD) + ')';
   wrap.appendChild(head);
 
-  MILESTONES.forEach(function (ms) {
-    var target = round2(base + ms);
-    var days = Math.max(0, Math.ceil((target - base) / avg));
-    var reach = new Date(lastDate.getTime() + days * 86400000);
+  PROJECTION_DAYS.forEach(function (days) {
+    var proj = round2(base + avg * days);
+    var gained = round2(avg * days);
+    var reach = new Date(today.getTime() + days * 86400000);
 
     var row = document.createElement('div');
     row.className = 'pred-item';
-    row.innerHTML = '<span class="k">+' + fmtInt(ms) + ' pts</span>' +
-      '<span class="v">' + fmtPts(target) + ' pts</span>';
+    row.innerHTML = '<span class="k">Tra ' + days + ' giorni</span>' +
+      '<span class="v">' + fmtUsd(proj * POINT_TO_USD) + '</span>';
     wrap.appendChild(row);
 
     var sub = document.createElement('div');
     sub.className = 'model-sub';
     sub.style.margin = '-6px 0 4px';
-    sub.textContent = 'il ' + dateKeyOf(reach) + ' (~' + days + ' gg) · ' + fmtUsd(target * POINT_TO_USD);
+    sub.textContent = fmtPts(proj) + ' pts · +' + fmtPts(gained) + ' pts entro il ' + dateKeyOf(reach);
     wrap.appendChild(sub);
   });
 }
@@ -991,7 +1156,9 @@ function bindEvents() {
   });
 
   root.addEventListener('change', function (ev) {
-    if (ev.target && ev.target.id === 'market-select') onMarketChange(ev.target.value);
+    if (!ev.target) return;
+    if (ev.target.id === 'market-select') onMarketChange(ev.target.value);
+    if (ev.target.id === 'global-start') onGlobalStartChange(ev.target.value);
   });
 
   root.addEventListener('keydown', function (ev) {
@@ -1012,6 +1179,7 @@ function renderAll() {
   renderMilestones();
   renderMonthly();
   renderModels();
+  syncGlobalInput();
 }
 
 function refresh() {
@@ -1043,7 +1211,7 @@ function refresh() {
       showState('dashboard');
       renderAll();
       return ensureChart()
-        .then(function () { renderChart(); })
+        .then(function () { renderChart(); return loadGlobalChart(); })
         .catch(function () { /* dashboard utilizzabile anche senza grafico */ });
     })
     .catch(function (e) {
@@ -1068,7 +1236,7 @@ function refresh() {
 
 function boot() {
   bindEvents();
-  startRealtime(); // idempotente: un solo timer anche dopo re-iniezioni   // idempotente: si riaggancia se l'overlay è stato ricreato
+  startRealtime(); // idempotente: un solo timer anche dopo re-iniezioni
   if (window.__mwDashBooted) {
     // Overlay ricreato (nuova iniezione): ridisegna senza rifare il fetch.
     if (state.labels.length) renderAll(); else refresh();

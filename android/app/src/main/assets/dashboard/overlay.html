@@ -91,9 +91,19 @@
         <div class="chart-wrap"><canvas id="chart"></canvas></div>
       </div>
 
-      <!-- Milestones -->
+      <!-- Andamento globale (download/stampi, come la tab Global dell'estensione) -->
       <div class="card">
-        <div class="card-label big">Quando raggiungerò…</div>
+        <div class="row-between">
+          <div class="card-label big">Andamento globale</div>
+          <input type="date" id="global-start" class="date-input">
+        </div>
+        <div class="chart-wrap"><canvas id="chart-global"></canvas></div>
+        <div id="global-msg" class="muted" style="margin-top:6px"></div>
+      </div>
+
+      <!-- Proiezioni di saldo -->
+      <div class="card">
+        <div class="card-label big">Quanto avrò tra…</div>
         <div id="milestones" class="pred-list"></div>
       </div>
 

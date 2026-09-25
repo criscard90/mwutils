@@ -19,6 +19,8 @@ effettua il login con la propria utenza MakerWorld la prima volta, poi mostra **
   - `/api/v1/point-service/point-bill/my?filter=all&limit=10000` — storico punti
   - `/en/points` (HTML) → buildId → `_next/data/{buildId}/en/points.json` — saldo punti
   - `_next/data/{buildId}/en.json` — profilo utente (nome, avatar, download/prints)
+  - `_next/data/{buildId}/en/my/data-overview/model.json?startDate=&endDate=` — download/stampi
+    giornalieri per il grafico di andamento globale
   - `/api/v1/point-service/product/products?shop={market}` — gift card
 - Chart.js viene caricato da CDN nel contesto pagina (come fa l'estensione); se il CDN non è
   raggiungibile la dashboard funziona comunque senza grafico.
@@ -47,8 +49,12 @@ Più, sotto:
   invece di restare vuota.
 - **Grafico** punti giornalieri (regular / exclusive / spesi) con selettore **ultima settimana /
   ultimo mese / ultimo anno**.
-- **Quando raggiungerò…**: milestone **+100 / +500 / +1000 / +5000** exclusive con data stimata,
-  giorni necessari e valore USD (stessa formula dell'estensione).
+- **Andamento globale**: grafico **download / stampi** dal tab "Global" dell'estensione
+  (`_next/data/{buildId}/en/my/data-overview/model.json`), con selettore data di inizio
+  (default 30 giorni fa, salvato in `localStorage` come `mw_global_start_date`).
+- **Quanto avrò tra…**: proiezione del **saldo attuale** (punti exclusive netti + corrispettivo USD)
+  dopo **7 / 15 / 30 giorni** con la media giornaliera — nessun riferimento al totale cumulato
+  storico.
 - **Riepilogo mensile** (exclusive guadagnati/riscattati in USD).
 - **Top modelli**, breakdown dell'ultimo giorno e modelli "freddi" (5 giorni senza punti).
 

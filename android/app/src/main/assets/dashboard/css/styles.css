@@ -151,6 +151,13 @@
 }
 #mw-root .chart-wrap { position: relative; height: 260px; }
 
+/* data inizio andamento globale */
+#mw-root .date-input {
+  background: var(--mw-bg-soft); color: var(--mw-text-dim);
+  border: 1px solid var(--mw-card-border); border-radius: 10px;
+  padding: 5px 8px; font-size: 12px; font-family: inherit;
+}
+
 /* ---------------- previsioni ---------------- */
 #mw-root .pred-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
 #mw-root .pred-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; }
