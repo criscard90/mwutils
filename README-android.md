@@ -51,7 +51,10 @@ Più, sotto:
   ultimo mese / ultimo anno**.
 - **Andamento globale**: grafico **download / stampi** dal tab "Global" dell'estensione
   (`_next/data/{buildId}/en/my/data-overview/model.json`), con selettore data di inizio
-  (default 30 giorni fa, salvato in `localStorage` come `mw_global_start_date`).
+  (default 30 giorni fa, salvato in `localStorage` come `mw_global_start_date`). Se l'endpoint
+  JSON non risponde si usa in fallback la pagina `/en/my/data-overview/model` (dati da
+  `__NEXT_DATA__`, senza bisogno di buildId); in caso di errore la card riporta il motivo
+  esatto (`errore HTTP …`, `struttura non riconosciuta`, `nessun dato nel periodo`, …).
 - **Quanto avrò tra…**: proiezione del **saldo attuale** (punti exclusive netti + corrispettivo USD)
   dopo **7 / 15 / 30 giorni** con la media giornaliera — nessun riferimento al totale cumulato
   storico.

@@ -420,39 +420,112 @@ function extractCount(d, keys) {
   return 0;
 }
 
-/**
- * Serie globale downloads/stampi: _next/data/{buildId}/en/my/data-overview/model.json
- * (stesso endpoint e stessa estrazione di loadGlobalIfNeeded nell'estensione).
- * In caso di errore restituisce null: il resto della dashboard non ne è influenzato.
- */
-function fetchGlobalSeries(buildId) {
-  var id = buildId || state.buildId;
-  if (!id) return Promise.resolve(null);
-  var url = 'https://makerworld.com/_next/data/' + id + '/en/my/data-overview/model.json' +
-    '?startDate=' + globalStartDate() + '&endDate=' + globalEndDate();
-  return fetchJson(url).then(function (j) {
-    var arr = (j && j.pageProps && j.pageProps.statisticalData) ||
-              (j && j.statisticalData) ||
-              (j && j.pageProps && j.pageProps.data && j.pageProps.data.statisticalData) ||
-              null;
-    var dateList = (arr && Array.isArray(arr.dateList)) ? arr.dateList : null;
-    if (!dateList || !dateList.length) return null;
+/** Normalizza un valore tipo intervalVal in 'YYYY-MM-DD' (YYYY/M/D, M/D/YYYY, D/M/YYYY...). */
+function normalizeDay(raw) {
+  var s = String(raw == null ? '' : raw).trim();
+  if (!s) return '';
+  var m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (m) return m[1] + '-' + String(+m[2]).padStart(2, '0') + '-' + String(+m[3]).padStart(2, '0');
+  m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (m) {
+    var a = +m[1], b = +m[2];
+    if (a > 12) return m[3] + '-' + String(b).padStart(2, '0') + '-' + String(a).padStart(2, '0'); // D/M/YYYY
+    return m[3] + '-' + String(a).padStart(2, '0') + '-' + String(b).padStart(2, '0');            // M/D/YYYY
+  }
+  return s; // formato ignoto: la riga resta (grafico comunque visibile, non la buttiamo)
+}
 
-    var rows = dateList.map(function (d) {
-      return {
-        label: String((d && d.intervalVal) || '').replace(/\//g, '-'),
-        downloads: extractCount(d, ['downloadCount', 'download', 'downloads']),
-        prints: extractCount(d, ['printCount', 'print', 'prints'])
-      };
-    }).filter(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(r.label); });
-    rows.sort(function (a, b) { return a.label < b.label ? -1 : (a.label > b.label ? 1 : 0); });
-    if (!rows.length) return null;
-    return {
+/** Trova statisticalData nella risposta (JSON _next/data oppure __NEXT_DATA__ della pagina). */
+function findStatistical(j) {
+  if (!j) return null;
+  var cands = [];
+  if (j.pageProps) {
+    cands.push(j.pageProps.statisticalData);
+    if (j.pageProps.data) cands.push(j.pageProps.data.statisticalData);
+  }
+  if (j.props && j.props.pageProps) {
+    cands.push(j.props.pageProps.statisticalData);
+    if (j.props.pageProps.data) cands.push(j.props.pageProps.data.statisticalData);
+    if (j.props.initialProps && j.props.initialProps.pageProps) {
+      cands.push(j.props.initialProps.pageProps.statisticalData);
+    }
+  }
+  cands.push(j.statisticalData);
+  for (var i = 0; i < cands.length; i++) if (cands[i]) return cands[i];
+  return null;
+}
+
+/** Converte la risposta in {series} oppure {error} (motivo breve, mostrato sulla card). */
+function seriesFromJson(j) {
+  var arr = findStatistical(j);
+  if (!arr) return { error: 'struttura non riconosciuta' };
+  var dateList = Array.isArray(arr) ? arr : (Array.isArray(arr.dateList) ? arr.dateList : null);
+  if (!dateList || !dateList.length) return { error: 'nessun dato nel periodo' };
+  var rows = [];
+  for (var i = 0; i < dateList.length; i++) {
+    var d = dateList[i];
+    var raw = (d && d.intervalVal) || (typeof d === 'string' ? d : '');
+    var label = normalizeDay(raw);
+    if (!label) continue;
+    rows.push({
+      label: label,
+      downloads: extractCount(d, ['downloadCount', 'download', 'downloads']),
+      prints: extractCount(d, ['printCount', 'print', 'prints'])
+    });
+  }
+  if (!rows.length) return { error: 'nessun dato nel periodo' };
+  rows.sort(function (a, b) { return a.label < b.label ? -1 : (a.label > b.label ? 1 : 0); });
+  return {
+    series: {
       labels: rows.map(function (r) { return r.label; }),
       downloads: rows.map(function (r) { return r.downloads; }),
       prints: rows.map(function (r) { return r.prints; })
-    };
-  }).catch(function () { return null; });
+    }
+  };
+}
+
+/** Motivo breve/leggibile per la card in caso di eccezione di fetch. */
+function globalFailReason(e) {
+  var msg = (e && e.message) ? e.message : String(e);
+  var m = msg.match(/HTTP (\d+)/);
+  if (m) return 'errore HTTP ' + m[1];
+  if (/non valida/.test(msg)) return 'risposta non JSON';
+  return (msg || 'errore sconosciuto').slice(0, 40);
+}
+
+/** Fallback senza buildId: pagina HTML della stessa route, dati da __NEXT_DATA__. */
+function fetchGlobalHtml(start, end) {
+  var url = 'https://makerworld.com/en/my/data-overview/model?startDate=' + start + '&endDate=' + end;
+  return fetchText(url).then(function (html) {
+    var m = String(html).match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+    if (!m) throw new Error('Risposta non valida dal server');
+    return JSON.parse(m[1]);
+  });
+}
+
+/**
+ * Serie globale downloads/stampi: prima l'endpoint JSON
+ * _next/data/{buildId}/en/my/data-overview/model.json (come l'estensione), in fallback la
+ * pagina HTML /en/my/data-overview/model con __NEXT_DATA__ (funziona anche senza buildId).
+ * Ritorna {series:{labels,downloads,prints}} oppure {error:motivo} per la card.
+ */
+function fetchGlobalSeries(buildId) {
+  var start = globalStartDate();
+  var end = globalEndDate();
+  var id = buildId || state.buildId || buildIdFromPage();
+  var ready = id ? Promise.resolve(id) : resolveBuildId();
+  return ready.then(function (bid) {
+    if (!bid) return { error: 'buildId non trovato' };
+    var url = 'https://makerworld.com/_next/data/' + bid + '/en/my/data-overview/model.json' +
+      '?startDate=' + start + '&endDate=' + end;
+    return fetchJson(url).then(seriesFromJson).catch(function (e) {
+      // JSON non raggiungibile (404/403/HTML): prova la pagina con __NEXT_DATA__.
+      // Se anche il fallback fallisce riportiamo il motivo del tentativo primario.
+      return fetchGlobalHtml(start, end).then(seriesFromJson).catch(function () {
+        return { error: globalFailReason(e) };
+      });
+    });
+  });
 }
 
 function destroyGlobalChart() {
@@ -481,10 +554,14 @@ function renderGlobalChart() {
 
   destroyGlobalChart();
   var s = state.globalSeries;
-  state.globalChart = new Chart(canvas.getContext('2d'), {
-    type: 'line',
-    data: {
-      labels: s.labels.map(shortDate),
+  var labels = s.labels.map(function (l) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(l) ? shortDate(l) : String(l);
+  });
+  try {
+    state.globalChart = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: labels,
       datasets: [
         {
           label: 'Downloads', data: s.downloads,
@@ -524,15 +601,25 @@ function renderGlobalChart() {
       }
     }
   });
+  } catch (e) {
+    state.globalChart = null;
+    globalMsg('Errore grafico: ' + ((e && e.message) || e));
+  }
 }
 
-/** Carica e disegna la serie globale; gli errori restano silenziosi nella card. */
+/** Carica e disegna la serie globale; il motivo di ogni errore resta scritto sulla card. */
 function loadGlobalChart() {
-  return fetchGlobalSeries(state.buildId).then(function (s) {
-    if (!s) { globalMsg('Dati globali non disponibili.'); return null; }
-    state.globalSeries = s;
-    globalMsg('');
-    return ensureChart().then(function () { renderGlobalChart(); }).catch(function () { /* ok senza grafico */ });
+  if (!state.globalSeries) globalMsg('Caricamento dati globali…');
+  return fetchGlobalSeries(state.buildId).then(function (r) {
+    if (r && r.series) {
+      state.globalSeries = r.series;
+      globalMsg('');
+      return ensureChart().then(function () { renderGlobalChart(); }).catch(function () { /* ok senza grafico */ });
+    }
+    var why = (r && r.error) || 'non disponibili';
+    globalMsg('Dati globali: ' + why);
+    if (window.console && console.warn) console.warn('[mw] andamento globale: ' + why);
+    return null;
   });
 }
 
