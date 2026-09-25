@@ -3,16 +3,22 @@ package com.criscard.mwutils
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.ProgressBar
 import android.widget.Toast
 import org.json.JSONObject
 
@@ -33,6 +39,13 @@ class MainActivity : Activity() {
 
         /** Cooldown anti-loop tra due richieste di re-login dalla dashboard. */
         private const val OPEN_LOGIN_COOLDOWN_MS = 20000L
+
+        /**
+         * Se la probe non ha esito entro questo timeout (rete lenta, OAuth su
+         * domini terzi, challenge), la cover di avvio si ritira e mostra la
+         * pagina con il pulsante di fuga: mai restare su uno schermo bloccato.
+         */
+        private const val COVER_FALLBACK_MS = 12000L
 
         /** User-Agent da browser Chrome mobile: necessario per il login (incl. Google sign-in). */
         private const val UA =
@@ -75,6 +88,29 @@ class MainActivity : Activity() {
     /** Timestamp dell'ultimo openLogin richiesto (anti-loop). */
     private var lastOpenLoginAt = 0L
 
+    /**
+     * true se lo stato LOGIN è dovuto a un rifiuto effettivo della sessione
+     * (401/403, re-login richiesto, logout): serve a mostrare il toast di
+     * benvenuto solo per i login reali, non per un avvio con rete lenta.
+     */
+    private var loginChallenge = false
+
+    /** Cover nativa di caricamento: oscura la pagina punti finché non serve vederla. */
+    private lateinit var coverView: View
+
+    /**
+     * Timeout di sicurezza della cover: se la probe non ha ancora prodotto un
+     * esito (sessione valida → dashboard, o → schermata di accesso), si passa
+     * in LOGIN e la pagina viene mostrata col pulsante di fuga.
+     */
+    private val coverFallback = Runnable {
+        if (mode == Mode.LOADING) {
+            mode = Mode.LOGIN
+            hideLoadingCover()
+            injectLoginHelper()
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -96,17 +132,55 @@ class MainActivity : Activity() {
         webView.addJavascriptInterface(Bridge(), "MwBridge")
         webView.webViewClient = AppWebViewClient()
 
-        setContentView(webView)
+        // Cover di caricamento nativa sopra la WebView: la pagina punti non è
+        // visibile finché la probe non decide (dashboard o schermata di accesso).
+        coverView = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#0B0F14"))
+            addView(ProgressBar(this@MainActivity).apply {
+                isIndeterminate = true
+                indeterminateTintList = ColorStateList.valueOf(Color.parseColor("#00A48F"))
+            }, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            ))
+        }
+        val root = FrameLayout(this).apply {
+            addView(webView, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+            addView(coverView, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+        }
+        setContentView(root)
 
         // Ripristina la sessione salvata (i cookie di sessione non sopravvivono
         // alla chiusura del processo: li riemettiamo nel CookieManager).
         restoreCookies()
 
-        // Partiamo direttamente dalla pagina punti: se l'utente non è loggato
-        // MakerWorld mostra la schermata di accesso, la probe rileva il login.
+        // Partiamo direttamente dalla pagina punti con la cover sopra: se la
+        // sessione è valida la dashboard prende il suo posto senza che la
+        // pagina MakerWorld sia mai apparsa; altrimenti la cover si ritira e
+        // resta la schermata di accesso.
         mode = Mode.LOADING
         webView.loadUrl(POINTS_URL)
         startProbing()
+        handler.postDelayed(coverFallback, COVER_FALLBACK_MS)
+    }
+
+    // ---------------------------------------------------------------------
+    // Cover di caricamento
+    // ---------------------------------------------------------------------
+
+    private fun showLoadingCover() {
+        coverView.visibility = View.VISIBLE
+    }
+
+    private fun hideLoadingCover() {
+        coverView.visibility = View.GONE
     }
 
     // ---------------------------------------------------------------------
@@ -137,7 +211,12 @@ class MainActivity : Activity() {
 
         override fun onPageFinished(view: WebView, url: String?) {
             when (mode) {
-                Mode.LOADING, Mode.LOGIN -> {
+                // In LOADING la cover oscura la pagina: niente pulsante di
+                // fuga, la probe decide se serve la schermata di accesso.
+                Mode.LOADING -> runProbe()
+                // In LOGIN la pagina di accesso è visibile: serve il pulsante
+                // di fuga (challenge Cloudflare, OAuth su domini terzi, ...).
+                Mode.LOGIN -> {
                     runProbe()
                     injectLoginHelper()
                 }
@@ -255,7 +334,7 @@ class MainActivity : Activity() {
         val script = buildString {
             append("(function(){")
             append("var d=document;")
-            append("var old=d.getElementById('mw-root'); if(old){return;}")
+            append("var old=d.getElementById('mw-root'); if(old){ window.MwBridge.dashboardReady(); return; }")
             // CSS: preferiamo constructable stylesheets (immuni da CSP),
             // con fallback su <style> inline.
             append("try{")
@@ -278,9 +357,17 @@ class MainActivity : Activity() {
             append("try{")
             append(js)
             append("}catch(e){ try{ window.MwBridge.toast('Errore dashboard: ' + (e && e.message ? e.message : e)); }catch(e2){} }")
+            // Il pulsante di fuga non serve più: la dashboard lo copre comunque,
+            // ma lo rimuoviamo esplicitamente per non lasciarlo nel DOM.
+            append("try{var hp=d.getElementById('mw-login-helper'); if(hp&&hp.parentNode){hp.parentNode.removeChild(hp);}}catch(e){}")
+            // Dopo due frame la dashboard è dipinta: nascondi la cover nativa.
+            append("try{requestAnimationFrame(function(){requestAnimationFrame(function(){window.MwBridge.dashboardReady();});});}catch(e){ window.MwBridge.dashboardReady(); }")
             append("})();")
         }
         webView.evaluateJavascript(script, null)
+        // Sicurezza: se il segnale JS non arriva (pagina tornata a caricare,
+        // JS bloccato), la cover esce comunque dopo 2s.
+        handler.postDelayed({ hideLoadingCover() }, 2000L)
     }
 
     // ---------------------------------------------------------------------
@@ -292,19 +379,56 @@ class MainActivity : Activity() {
         /** Chiamata dalla probe JS con l'esito del controllo autenticazione. */
         @JavascriptInterface
         fun authResult(status: Int, authenticated: Int) {
-            if (authenticated != 1 || mode == Mode.DASHBOARD) return
-            runOnUiThread {
-                if (mode == Mode.DASHBOARD) return@runOnUiThread
-                stopProbing()
-                mode = Mode.DASHBOARD
-                saveCookies()
-                Toast.makeText(this@MainActivity, "Login effettuato!", Toast.LENGTH_SHORT).show()
-                if (webView.url != null && webView.url!!.startsWith("$MW/en/points")) {
-                    injectDashboard()
-                } else {
-                    webView.loadUrl(POINTS_URL) // onPageFinished inietterà la dashboard
+            if (mode == Mode.DASHBOARD) return
+            if (authenticated == 1) {
+                runOnUiThread {
+                    if (mode == Mode.DASHBOARD) return@runOnUiThread
+                    // Toast solo per un login effettivo (si partiva dalla pagina
+                    // di accesso): all'avvio con sessione valida non compare.
+                    val freshLogin = mode == Mode.LOGIN && loginChallenge
+                    stopProbing()
+                    mode = Mode.DASHBOARD
+                    loginChallenge = false
+                    saveCookies()
+                    if (freshLogin) {
+                        Toast.makeText(this@MainActivity, "Login effettuato!", Toast.LENGTH_SHORT).show()
+                    }
+                    if (webView.url != null && webView.url!!.startsWith("$MW/en/points")) {
+                        injectDashboard()
+                    } else {
+                        // Copriamo la pagina durante la navigazione: la cover
+                        // viene ritirata dal segnale dashboardReady.
+                        showLoadingCover()
+                        webView.loadUrl(POINTS_URL) // onPageFinished inietterà la dashboard
+                    }
+                }
+                return
+            }
+            // Risposta HTTP definitiva dalla quale la sessione non risulta
+            // valida (401/403, o 200 senza dati): passa in LOGIN, scopri la
+            // pagina (schermata di accesso MW) e mostra il pulsante di fuga.
+            // status -1 = fetch fallita (pagina non pronta, OAuth su altro
+            // dominio, rete) e 5xx = errore transitorio del server: restano in
+            // attesa, al fallback della cover (COVER_FALLBACK_MS) il compito di
+            // sbloccare la schermata.
+            if (status in 200..499) {
+                runOnUiThread {
+                    if (mode != Mode.LOADING) return@runOnUiThread
+                    mode = Mode.LOGIN
+                    loginChallenge = true
+                    hideLoadingCover()
+                    injectLoginHelper()
                 }
             }
+        }
+
+        /**
+         * Chiamata dal JS della dashboard quando l'overlay è nel DOM e dipinto:
+         * nasconde la cover nativa rivelando la dashboard.
+         */
+        @JavascriptInterface
+        fun dashboardReady() {
+            runOnUiThread { hideLoadingCover() }
         }
 
         /** Forza l'apertura della dashboard (pulsante "di fuga" nella pagina di login). */
@@ -314,6 +438,8 @@ class MainActivity : Activity() {
                 stopProbing()
                 mode = Mode.DASHBOARD
                 saveCookies()
+                // Durante il passaggio la cover evita di vedere la pagina MW.
+                showLoadingCover()
                 val u = webView.url
                 if (u != null && u.startsWith("$MW/en/points")) {
                     injectDashboard()
@@ -340,6 +466,12 @@ class MainActivity : Activity() {
                 }
                 lastOpenLoginAt = now
                 mode = Mode.LOADING
+                loginChallenge = true
+                // Copriamo la pagina durante il re-login: la cover si ritira
+                // quando la probe decide (accesso o di nuovo la dashboard).
+                showLoadingCover()
+                handler.removeCallbacks(coverFallback)
+                handler.postDelayed(coverFallback, COVER_FALLBACK_MS)
                 startProbing()
                 webView.loadUrl(POINTS_URL)
                 Toast.makeText(this@MainActivity, "Sessione scaduta: effettua di nuovo l'accesso", Toast.LENGTH_LONG).show()
@@ -353,6 +485,10 @@ class MainActivity : Activity() {
             prefs.edit().remove("mw_cookies").apply()
             runOnUiThread {
                 mode = Mode.LOADING
+                loginChallenge = true
+                showLoadingCover()
+                handler.removeCallbacks(coverFallback)
+                handler.postDelayed(coverFallback, COVER_FALLBACK_MS)
                 startProbing()
                 webView.loadUrl(POINTS_URL)
             }

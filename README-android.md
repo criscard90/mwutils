@@ -11,10 +11,17 @@ effettua il login con la propria utenza MakerWorld la prima volta, poi mostra **
 - **Perché l'iniezione**: le richieste HTTP native (`HttpURLConnection`) vengono bloccate da
   Cloudflare con 403; eseguendo le fetch **nel contesto della pagina** usiamo il motore Chromium
   vero, con cookie di sessione automatici, nessun problema CORS e nessun challenge Cloudflare.
-- **Login**: se l'utente non è autenticato, la pagina punti mostra la schermata di accesso;
-  una **probe same-origin** (fetch a `/api/v1/point-service/point-bill/my` eseguita ogni ~2,5s
-  dentro la pagina) rileva il login riuscito e inietta la dashboard. I cookie restano nel
-  `CookieManager` di Android: ai lanci successivi la dashboard appare subito.
+- **Avvio immersivo**: all'apertura una **cover nativa** (sfondo scuro + spinner) oscura la
+  pagina punti: se la sessione è valida la dashboard prende il posto della cover **senza che
+  la pagina MakerWorld sia mai apparsa**. Il pulsante "Apri la dashboard MW Utils" compare
+  **solo** se la probe conferma che non si è autenticati (o dopo il timeout di sicurezza di
+  ~12s, es. rete lenta o OAuth): non viene più mostrato a ogni avvio.
+- **Login**: se l'utente non è autenticato, la cover si ritira e la pagina punti mostra la
+  schermata di accesso; una **probe same-origin** (fetch a `/api/v1/point-service/point-bill/my`
+  eseguita ogni ~2,5s dentro la pagina) rileva il login riuscito e inietta la dashboard; un
+  pulsante "di fuga" resta disponibile se la probe non riesce (es. challenge Cloudflare o OAuth
+  su domini terzi). I cookie restano nel `CookieManager` di Android: ai lanci successivi la
+  dashboard appare subito.
 - **Stesse API dell'estensione** (`mw_injected.js`), chiamate con `fetch()` same-origin:
   - `/api/v1/point-service/point-bill/my?filter=all&limit=10000` — storico punti
   - `/en/points` (HTML) → buildId → `_next/data/{buildId}/en/points.json` — saldo punti
